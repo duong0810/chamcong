@@ -491,4 +491,5 @@ $RECYCLE.BIN/
 data.sql
 fix.txt
 chamcong/wwwroot/uploads/
-appsettings.Development.json
+chamcong/appsettings.Development.json
+chamcong/appsettings.json
