@@ -1,0 +1,33 @@
+- xử lý vòng overlay thu phóng
+
+khi mở camera ở bước 1 người dùng sẽ đưa điện thoại lên và phân chia lại bước 1 và 2 thay đổi kích thước khung tròng overlay
+
+- thêm phân hệ trang register , phân biệt không được đăng kí trùng khuôn mặt, nhân viên nào đăng kí khuôn mặt rồi thì không được đăng kí khuôn mặt nữa
+
+- thêm phân hệ trong trang attendance đối chiếu lại kết quả sau khi chấm công, kết quả trả về phải hoàn toàn trùng với mã và tên nhân viên đã đăng nhập,
+nếu khác báo lỗi, phụ thuộc vào tính năng đăng nhập,
+
+
+login -- đăng kí khuôn mặt --- chấm công
+login --- chấm công
+
+
+*logic chấm công, chấm công theo ngày trong vòng 1 ngày 24 tiếng thì chỉ được chấm công 1 lần vào 1 lần ra --> giới hạn số lần chấm công --> sau 24 tiếng
+kết thúc 1 ngày thì khoá dữ liệu của ngày đó lại, qua ngày mới sẽ bình thường
+--> người dùng mà chấm công vào 2 lần trong 1 ngày thì lần thứ 2 sẽ báo lỗi và tương tự như vậy người dùng mà chấm công ra 2 lần trong 1 ngày cũng sẽ báo lỗi
+--> phải chấm công vào thì mới chấm công ra được, 
+--> làm thêm 1 cột ghi chú trong attendance.razor để người nào quên chấm công vào nhưng tới giờ về mới nhớ thì họ sẽ thao tác chấm công vào và ghi lý do vào ô 
+ghi chú, sau đó chấm công ra
+
+- user 01 login lần 1 --> đăng kí khuôn mặt --> chấm công --> done
+                        
+ 		          chưa đăng kí --> chấm công --> báo lỗi                      
+refesh lại hệ thống khi người dùng out
+
+- kiến trúc bắt buộc của Blazor WebAssembly Hosted không cho phép
++ chamcong --> chạy trên sever asp.net core, controller, db
++ chamcong.client --> chạy trên trình duyệt webassembly
++ chamcong.share --> dùng chung models và dtos 
+
+web đích đang xử dụng .net mấy
+là asp.net mvc/web forms hay là devexpress controls
