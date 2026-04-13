@@ -484,3 +484,33 @@ $RECYCLE.BIN/
 *.swp
 
 .vs/
+
+
+## .NET / Build Output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+## ASP.NET / Blazor
+wwwroot/uploads/        # Thư mục uploads của bạn - không push ảnh/file user
+appsettings.Development.json   # Chứa connection string dev
+
+## Logs
+logs/
+*.log
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Rider / VS Code
+.idea/
+.vscode/
+*.swp
+
+Add-Content .gitignore "`n.vs/"
+Add-Content .gitignore "`nchamcong/wwwroot/uploads/"
+Add-Content .gitignore "`ndata.sql"
+Add-Content .gitignore "`nfix.txt"
