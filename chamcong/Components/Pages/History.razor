@@ -1,0 +1,470 @@
+﻿@page "/history"
+@rendermode InteractiveServer
+@inject ApiService ApiService
+
+<PageTitle>Lịch sử chấm công</PageTitle>
+
+<div class="history-container">
+    <h2 class="page-title">📋 Lịch Sử Chấm Công</h2>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">👤 Chọn nhân viên</label>
+                    <select class="form-select" @bind="selectedEmployeeId" @bind:after="LoadHistoryAsync">
+                        <option value="0">-- Chọn nhân viên --</option>
+                        @foreach (var emp in employees)
+                        {
+                            <option value="@emp.Id">@emp.FullName (@emp.EmployeeCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">📅 Số ngày</label>
+                    <select class="form-select" @bind="days" @bind:after="LoadHistoryAsync">
+                        <option value="7">7 ngày gần đây</option>
+                        <option value="15">15 ngày</option>
+                        <option value="30">30 ngày</option>
+                        <option value="60">60 ngày</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Đang tải...</span>
+            </div>
+        </div>
+    }
+    else if (records.Any())
+    {
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Tìm thấy @records.Count bản ghi</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Ngày</th>
+                                <th>Nhân Viên</th>
+                                <th>Giờ vào</th>
+                                <th>Giờ ra</th>
+                                <th>Ghi chú</th>
+                                <th>Ảnh vào</th>
+                                <th>Ảnh ra</th>
+                                <th>Tổng giờ</th>
+                                <th>GPS vào</th>
+                                <th>GPS ra</th>
+                                <th>Độ lệch vào</th>
+                                <th>Độ lệch ra</th>
+                                <th>IP vào</th>
+                                <th>IP ra</th>
+                                <th>Thiết bị vào</th>
+                                <th>Thiết bị ra</th>
+                                <th>Vị trí</th>
+                                
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var record in records)
+                            {
+                                <tr>
+                                    <td>@record.CheckInTime.ToString("dd/MM/yyyy")</td>
+                                    <td>@record.EmployeeName</td>
+                                    <td>@record.CheckInTime.ToString("HH:mm")</td>
+                                    <td>@(record.CheckOutTime?.ToString("HH:mm") ?? "-")</td>
+
+                                    <td class="small">
+                                        @if (!string.IsNullOrWhiteSpace(record.Notes))
+                                        {
+                                            <span title="@record.Notes" class="text-truncate" style="display:inline-block; max-width:220px;">
+                                                @record.Notes
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+
+                                    <!-- Check-in image: mở modal thay vì mở tab mới -->
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(record.CheckInFaceImageUrl))
+                                        {
+                                            <button class="img-thumb-btn" @onclick="() => OpenImageModal(record.CheckInFaceImageUrl)">
+                                                <img src="@record.CheckInFaceImageUrl" alt="checkin" class="thumb" />
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+
+                                    <!-- Check-out image: mở modal thay vì mở tab mới -->
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(record.CheckOutFaceImageUrl))
+                                        {
+                                            <button class="img-thumb-btn" @onclick="() => OpenImageModal(record.CheckOutFaceImageUrl)">
+                                                <img src="@record.CheckOutFaceImageUrl" alt="checkout" class="thumb" />
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+
+                                    <td>
+                                        @if (record.CheckOutTime.HasValue)
+                                        {
+                                            var duration = record.CheckOutTime.Value - record.CheckInTime;
+                                            <text>@duration.Hours giờ @duration.Minutes phút</text>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+
+                                    <!-- ✅ GPS CHECK-IN -->
+                                    <td>
+                                        @if (record.Latitude.HasValue && record.Longitude.HasValue)
+                                        {
+                                            <a href="https://www.google.com/maps?q=@record.Latitude,@record.Longitude"
+                                               target="_blank"
+                                               class="badge bg-success text-decoration-none"
+                                               title="Xem vị trí check-in trên Google Maps">
+                                                ✅ @record.Latitude.Value.ToString("F6"), @record.Longitude.Value.ToString("F6")
+                                            </a>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">❌ Không có GPS</span>
+                                        }
+                                    </td>
+                                    <!-- ✅ GPS CHECK-OUT -->
+                                    <td>
+                                        @if (record.CheckOutLatitude.HasValue && record.CheckOutLongitude.HasValue)
+                                        {
+                                            <a href="https://www.google.com/maps?q=@record.CheckOutLatitude,@record.CheckOutLongitude"
+                                               target="_blank"
+                                               class="badge bg-danger text-decoration-none"
+                                               title="Xem vị trí check-out trên Google Maps">
+                                                ✅ @record.CheckOutLatitude.Value.ToString("F6"), @record.CheckOutLongitude.Value.ToString("F6")
+                                            </a>
+                                        }
+                                        else if (record.CheckOutTime.HasValue)
+                                        {
+                                            <span class="badge bg-warning">⚠️ Chưa có GPS</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+
+                                    <!-- NEW: Độ lệch (DistanceMeters) -->
+                                    <td>
+                                        @if (record.CheckInDistanceMeters.HasValue)
+                                        {
+                                            <span class="badge bg-info">@record.CheckInDistanceMeters.Value.ToString("F1") m</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+
+                                    <td>
+                                        @if (record.CheckOutDistanceMeters.HasValue)
+                                        {
+                                            <span class="badge bg-info">@record.CheckOutDistanceMeters.Value.ToString("F1") m</span>
+                                        }
+                                        else if (record.CheckOutTime.HasValue)
+                                        {
+                                            <span class="badge bg-warning">⚠️ Chưa có GPS</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+
+                                    <!-- IP và Device: dùng truncate + tooltip -->
+                                    <td class="small ip-cell">
+                                        <span class="truncate" title="@(!string.IsNullOrWhiteSpace(record.CheckInIp) ? record.CheckInIp : "-")">
+                                            @(!string.IsNullOrWhiteSpace(record.CheckInIp) ? record.CheckInIp : "-")
+                                        </span>
+                                    </td>
+
+                                    <td class="small ip-cell">
+                                        <span class="truncate" title="@(!string.IsNullOrWhiteSpace(record.CheckOutIp) ? record.CheckOutIp : "-")">
+                                            @(!string.IsNullOrWhiteSpace(record.CheckOutIp) ? record.CheckOutIp : "-")
+                                        </span>
+                                    </td>
+
+                                    <!-- CheckIn Device -->
+                                    <td class="small device-cell">
+                                        <span class="truncate" title="@(!string.IsNullOrWhiteSpace(record.CheckInDeviceInfo) ? record.CheckInDeviceInfo : "-")">
+                                            @(!string.IsNullOrWhiteSpace(record.CheckInDeviceInfo) ? record.CheckInDeviceInfo : "-")
+                                        </span>
+                                    </td>
+
+                                    <!-- CheckOut Device -->
+                                    <td class="small device-cell">
+                                        <span class="truncate" title="@(!string.IsNullOrWhiteSpace(record.CheckOutDeviceInfo) ? record.CheckOutDeviceInfo : "-")">
+                                            @(!string.IsNullOrWhiteSpace(record.CheckOutDeviceInfo) ? record.CheckOutDeviceInfo : "-")
+                                        </span>
+                                    </td>
+
+                                    <td>@(record.Location ?? "-")</td>             
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else if (selectedEmployeeId > 0)
+    {
+        <div class="alert alert-info">
+            Không có dữ liệu chấm công trong @days ngày gần đây.
+        </div>
+    }
+</div>
+
+<!-- Modal hiển thị ảnh -->
+@if (isImageModalOpen && !string.IsNullOrEmpty(modalImageUrl))
+{
+    <div class="image-modal" @onclick="CloseImageModal" role="dialog" aria-modal="true">
+        <div class="image-modal-content" @onclick:stopPropagation>
+            <button class="modal-close" aria-label="Đóng" @onclick="CloseImageModal">✕</button>
+            <img src="@modalImageUrl" alt="Ảnh chấm công" class="modal-image" />
+        </div>
+    </div>
+}
+
+<style>
+    /* cho phép cuộn ngang mượt trên mobile */
+    .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* bảng history: cho phép xuống dòng nếu cần, tránh cắt nội dung cứng */
+    .history-table th,
+    .history-table td {
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    /* nhưng giữ cắt gọn cho cột thiết bị (hiển thị ellipsis, show full via title) */
+    .history-table .col-device {
+        max-width: 180px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* nếu muốn cột thiết bị rộng hơn trên màn hình lớn */
+    @@media (min-width: 641px) {
+        .history-table .col-device
+
+    {
+        max-width: 320px;
+    }
+
+    }
+    .history-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .page-title {
+        text-align: center;
+        color: #512bd4;
+        margin-bottom: 2rem;
+    }
+
+    .card {
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-radius: 10px;
+    }
+
+    .table {
+        margin-bottom: 0;
+    }
+
+    .badge {
+        font-size: 0.85rem;
+        padding: 0.5em 0.75em;
+    }
+
+    /* Thumbnail button reset */
+    .img-thumb-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+        display: inline-block;
+    }
+
+    .thumb {
+        width: 64px;
+        height: 48px;
+        object-fit: cover; /* giữ tỉ lệ, crop nếu cần */
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        display: block;
+        image-orientation: from-image; /* tôn trọng EXIF nếu trình duyệt hỗ trợ */
+    }
+
+    /* Thay thế .image-modal, .image-modal-content, .modal-image bằng đoạn này */
+    .image-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.75);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1050;
+        padding: 1rem;
+        box-sizing: border-box;
+    }
+
+    .image-modal-content {
+        position: relative;
+        width: min(900px, 95vw); /* giới hạn chiều rộng tổng quát */
+        aspect-ratio: 3 / 4; /* khung cố định (portrait); đổi nếu muốn) */
+        max-height: 90vh; /* không vượt màn hình */
+        background: #000;
+        padding: 0.5rem;
+        border-radius: 8px;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+    }
+
+    .modal-image {
+        width: 100%;
+        height: 100%;
+        object-fit: contain; /* không crop, luôn hiển thị toàn bộ ảnh */
+        object-position: center;
+        display: block;
+        background-color: #000; /* màu nền khi có khoảng trống */
+        image-orientation: from-image;
+    }
+
+    .modal-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: rgba(255,255,255,0.9);
+        border: none;
+        border-radius: 4px;
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+        cursor: pointer;
+    }
+
+    /* Truncate cho IP / Device để không xuống dòng dọc, kèm tooltip */
+    .ip-cell,
+    .device-cell {
+        vertical-align: middle;
+        padding: 0.35rem 0.75rem;
+    }
+
+        .ip-cell .truncate {
+            display: block;
+            max-width: 140px; /* điều chỉnh nếu muốn rộng hơn */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .device-cell .truncate {
+            display: block;
+            max-width: 220px; /* device string thường dài, tăng nếu cần */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+    /* Trên mobile, giảm kích thước thumbnail và độ rộng truncate */
+    @@media (max-width: 576px) {
+        .thumb
+
+    {
+        width: 48px;
+        height: 36px;
+    }
+
+    .ip-cell .truncate {
+        max-width: 90px;
+    }
+
+    .device-cell .truncate {
+        max-width: 120px;
+    }
+
+    }
+</style>
+
+@code {
+    private List<EmployeeDto> employees = new();
+    private List<AttendanceHistoryDto> records = new();
+    private int selectedEmployeeId = 0;
+    private int days = 30;
+    private bool isLoading = false;
+
+    // Modal state
+    private bool isImageModalOpen = false;
+    private string? modalImageUrl;
+
+    protected override async Task OnInitializedAsync()
+    {
+        employees = await ApiService.GetEmployeesAsync();
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        if (selectedEmployeeId == 0) return;
+
+        isLoading = true;
+        try
+        {
+            records = await ApiService.GetHistoryAsync(selectedEmployeeId, days);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenImageModal(string url)
+    {
+        modalImageUrl = url;
+        isImageModalOpen = true;
+    }
+
+    private void CloseImageModal()
+    {
+        isImageModalOpen = false;
+        modalImageUrl = null;
+    }
+}

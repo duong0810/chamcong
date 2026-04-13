@@ -1,0 +1,450 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@using chamcong.DTOs
+<PageTitle>Cấp quyền truy cập</PageTitle>
+
+@if (shouldShowUI)
+{
+    <div class="permission-setup-container">
+        <div class="permission-card">
+            <!-- Header -->
+            <div class="permission-header">
+                <div class="app-icon">📱</div>
+                <h2>Hệ Thống Chấm Công</h2>
+                <p class="subtitle">Vui lòng cấp quyền để sử dụng ứng dụng</p>
+            </div>
+
+            <!-- Permissions List -->
+            <div class="permissions-list">
+                <!-- Camera Permission -->
+                <div class="permission-item @GetPermissionClass("camera")">
+                    <div class="permission-icon">📹</div>
+                    <div class="permission-info">
+                        <h4>Quyền truy cập Camera</h4>
+                        <p>Để nhận diện khuôn mặt khi chấm công</p>
+                        @if (cameraStatus == "granted")
+                        {
+                            <span class="status-badge success">✅ Đã cấp quyền</span>
+                        }
+                        else if (cameraStatus == "denied")
+                        {
+                            <span class="status-badge error">❌ Đã từ chối</span>
+                        }
+                        else
+                        {
+                            <span class="status-badge pending">⏳ Chờ cấp quyền</span>
+                        }
+                    </div>
+                </div>
+
+                <!-- Location Permission -->
+                <div class="permission-item @GetPermissionClass("location")">
+                    <div class="permission-icon">📍</div>
+                    <div class="permission-info">
+                        <h4>Quyền truy cập Vị trí (GPS)</h4>
+                        <p>Để ghi nhận tọa độ khi chấm công</p>
+                        @if (locationStatus == "granted")
+                        {
+                            <span class="status-badge success">✅ Đã cấp quyền</span>
+                        }
+                        else if (locationStatus == "denied")
+                        {
+                            <span class="status-badge error">❌ Đã từ chối</span>
+                        }
+                        else
+                        {
+                            <span class="status-badge pending">⏳ Chờ cấp quyền</span>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error/Success Messages -->
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger">
+                    <strong>⚠️ Lỗi:</strong> @errorMessage
+                    @if (showInstructions)
+                    {
+                        <pre class="mt-2">@instructions</pre>
+                        <button class="btn btn-sm btn-outline-danger mt-2" @onclick="ReloadPage">
+                            🔄 Tải lại trang
+                        </button>
+                    }
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(successMessage))
+            {
+                <div class="alert alert-success">
+                    <strong>✅</strong> @successMessage
+                </div>
+            }
+
+            <!-- Action Buttons -->
+            <div class="permission-actions">
+                @if (allPermissionsGranted)
+                {
+                    <button class="btn btn-success btn-lg w-100" @onclick="GoToHome">
+                        ✅ Bắt đầu sử dụng
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-primary btn-lg w-100"
+                            @onclick="RequestPermissions"
+                            disabled="@isRequesting">
+                        @if (isRequesting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        🔐 Cấp quyền truy cập
+                    </button>
+
+                    @if (cameraStatus == "denied" || locationStatus == "denied")
+                    {
+                        <button class="btn btn-outline-secondary mt-2 w-100" @onclick="ShowInstructions">
+                            📖 Hướng dẫn bật lại quyền
+                        </button>
+                    }
+
+                    <button class="btn btn-outline-secondary mt-2 w-100" @onclick="SkipPermissions">
+                        Bỏ qua (vào trang chủ)
+                    </button>
+                }
+            </div>
+
+            <!-- Info Note -->
+            <div class="info-note">
+                <small>
+                    ℹ️ Ứng dụng cần quyền truy cập Camera và GPS để hoạt động đúng chức năng.
+                    Dữ liệu của bạn được bảo mật và chỉ sử dụng cho mục đích chấm công.
+                </small>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <!-- ✅ HIỂN THỊ LOADING KHI ĐANG KIỂM TRA QUYỀN -->
+    <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <div class="spinner-border text-white" style="width: 3rem; height: 3rem;" role="status">
+            <span class="visually-hidden">Đang kiểm tra quyền...</span>
+        </div>
+    </div>
+}
+
+<style>
+    .permission-setup-container {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+    }
+
+    .permission-card {
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        max-width: 500px;
+        width: 100%;
+        padding: 2rem;
+        animation: slideUp 0.5s ease-out;
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .permission-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+
+    .app-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        animation: bounce 2s infinite;
+    }
+
+    @@keyframes bounce {
+        0%, 100% {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-10px);
+        }
+    }
+
+    .permission-header h2 {
+        color: #512bd4;
+        margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+        color: #6c757d;
+        font-size: 0.95rem;
+    }
+
+    .permissions-list {
+        margin-bottom: 1.5rem;
+    }
+
+    .permission-item {
+        display: flex;
+        align-items: flex-start;
+        padding: 1.5rem;
+        border: 2px solid #e9ecef;
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        transition: all 0.3s ease;
+    }
+
+        .permission-item:hover {
+            border-color: #512bd4;
+            box-shadow: 0 4px 12px rgba(81, 43, 212, 0.1);
+        }
+
+        .permission-item.granted {
+            border-color: #28a745;
+            background-color: #f0fff4;
+        }
+
+        .permission-item.denied {
+            border-color: #dc3545;
+            background-color: #fff5f5;
+        }
+
+    .permission-icon {
+        font-size: 2.5rem;
+        margin-right: 1rem;
+    }
+
+    .permission-info {
+        flex: 1;
+    }
+
+        .permission-info h4 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1.1rem;
+            color: #333;
+        }
+
+        .permission-info p {
+            margin: 0;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+    .status-badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-top: 0.5rem;
+    }
+
+        .status-badge.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-badge.pending {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+    .permission-actions {
+        margin-bottom: 1rem;
+    }
+
+    .btn-lg {
+        padding: 1rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        border-radius: 10px;
+    }
+
+    .info-note {
+        text-align: center;
+        padding: 1rem;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+    }
+
+        .info-note small {
+            color: #6c757d;
+            line-height: 1.5;
+        }
+
+    .alert {
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+
+        .alert pre {
+            background-color: rgba(0,0,0,0.05);
+            padding: 1rem;
+            border-radius: 5px;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            margin-bottom: 0;
+        }
+</style>
+
+@code {
+    private string cameraStatus = "unknown";
+    private string locationStatus = "unknown";
+    private bool allPermissionsGranted = false;
+    private bool isRequesting = false;
+    private string errorMessage = "";
+    private string successMessage = "";
+    private string instructions = "";
+    private bool showInstructions = false;
+
+    // ✅ FLAG ĐỂ QUYẾT ĐỊNH HIỂN THỊ UI HAY KHÔNG
+    private bool shouldShowUI = false;
+
+    // ✅ KIỂM TRA TRẠNG THÁI QUYỀN KHI LOAD TRANG
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckCurrentPermissions();
+        }
+    }
+
+    // ✅ SỬA: CHUYỂN TRANG NGAY HOẶC HIỂN THỊ UI
+    private async Task CheckCurrentPermissions()
+    {
+        try
+        {
+            Console.WriteLine("🔍 Kiểm tra trạng thái quyền từ LocalStorage/Browser...");
+
+            var status = await JS.InvokeAsync<PermissionStatus>("checkPermissionsStatus");
+
+            cameraStatus = status.Camera;
+            locationStatus = status.Location;
+            allPermissionsGranted = status.AllGranted;
+
+            // ✅ NẾU ĐÃ CẤP QUYỀN → CHUYỂN NGAY, KHÔNG HIỂN THỊ UI
+            if (allPermissionsGranted)
+            {
+                Console.WriteLine("✅ Tất cả quyền đã được cấp - Chuyển trang ngay lập tức");
+
+                // ❌ KHÔNG hiển thị UI
+                shouldShowUI = false;
+
+                // ✅ Chuyển trang ngay lập tức
+                Navigation.NavigateTo("/home", forceLoad: false);
+                return;
+            }
+
+            // ✅ HIỂN THỊ UI NẾU CHƯA CẤP QUYỀN
+            Console.WriteLine($"📊 Trạng thái: Camera={cameraStatus}, Location={locationStatus}");
+            shouldShowUI = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi kiểm tra permissions: {ex.Message}");
+            shouldShowUI = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RequestPermissions()
+    {
+        isRequesting = true;
+        errorMessage = "";
+        successMessage = "";
+        showInstructions = false;
+        StateHasChanged();
+
+        try
+        {
+            Console.WriteLine("🔐 Người dùng nhấn nút 'Cấp quyền truy cập'...");
+
+            var result = await JS.InvokeAsync<PermissionRequestResult>("requestAllPermissions");
+
+            cameraStatus = result.Camera.Success ? "granted" : "denied";
+            locationStatus = result.Location.Success ? "granted" : "denied";
+            allPermissionsGranted = result.AllGranted;
+
+            if (result.AllGranted)
+            {
+                successMessage = "✅ Đã cấp tất cả quyền thành công!";
+                StateHasChanged();
+                await Task.Delay(1500);
+                Navigation.NavigateTo("/home", false);
+            }
+            else
+            {
+                var errors = new List<string>();
+                if (!result.Camera.Success) errors.Add($"Camera: {result.Camera.Message}");
+                if (!result.Location.Success) errors.Add($"GPS: {result.Location.Message}");
+
+                errorMessage = string.Join("\n", errors);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Lỗi xin quyền: {ex.Message}";
+        }
+        finally
+        {
+            isRequesting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ShowInstructions()
+    {
+        showInstructions = true;
+
+        var failedPermission = cameraStatus == "denied" ? "camera" : "location";
+        instructions = await JS.InvokeAsync<string>("showPermissionInstructions", failedPermission);
+
+        StateHasChanged();
+    }
+
+    private void ReloadPage()
+    {
+        Navigation.NavigateTo("/", true);
+    }
+
+    private void SkipPermissions()
+    {
+        Navigation.NavigateTo("/home", false);
+    }
+
+    private void GoToHome()
+    {
+        Navigation.NavigateTo("/home", false);
+    }
+
+    private string GetPermissionClass(string type)
+    {
+        var status = type == "camera" ? cameraStatus : locationStatus;
+        return status == "granted" ? "granted" : status == "denied" ? "denied" : "";
+    }
+}

@@ -1,0 +1,866 @@
+﻿@page "/register-face"
+@rendermode InteractiveServer
+@inject ApiService ApiService
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<PageTitle>Đăng ký khuôn mặt</PageTitle>
+
+<div class="register-face-container">
+    <h2 class="page-title">📸 Đăng Ký Khuôn Mặt</h2>
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert alert-@(isSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
+            <strong>@(isSuccess ? "✅" : "❌")</strong> @message
+            <button type="button" class="btn-close" @onclick="() => message = string.Empty"></button>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            <!-- Chọn nhân viên -->
+            <div class="mb-4">
+                <label class="form-label">👤 Chọn nhân viên</label>
+                <select class="form-select form-select-lg" @bind="selectedEmployeeId">
+                    <option value="0">-- Chọn nhân viên --</option>
+                    @foreach (var emp in employees)
+                    {
+                        <option value="@emp.Id">@emp.FullName (@emp.EmployeeCode)</option>
+                    }
+                </select>
+            </div>
+
+            <!-- Webcam Preview -->
+            <div class="webcam-section mb-4">
+                <h5>📹 Camera</h5>
+
+                @if (!isCameraStarted)
+                {
+                    <div class="camera-placeholder">
+                        <p class="text-muted">Camera chưa bật</p>
+                        <button class="btn btn-primary"
+                                @onclick="StartCameraAsync"
+                                disabled="@(selectedEmployeeId == 0 || isProcessing)">
+                            📷 Bật Camera
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="video-wrapper">
+                        <div class="video-container">
+                            <video id="webcam" autoplay playsinline muted></video>
+                        </div>
+
+                        <div class="face-guide-overlay">
+                            <svg class="face-guide-frame" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid meet">
+                                <ellipse cx="150"
+                                         cy="200"
+                                         rx="140"
+                                         ry="180"
+                                         fill="none"
+                                         stroke="currentColor"
+                                         stroke-width="3"
+                                         stroke-dasharray="10 5"
+                                         class="guide-ellipse @GetLivenessClass()" />
+                            </svg>
+
+                            @if (livenessStep > 0)
+                            {
+                                <div class="liveness-progress">
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar @GetProgressBarClass()"
+                                             role="progressbar"
+                                             style="width: @GetProgressPercentage()%"
+                                             aria-valuenow="@livenessStep"
+                                             aria-valuemin="0"
+                                             aria-valuemax="5">
+                                        </div>
+                                    </div>
+                                    <small class="text-white mt-1">Bước @livenessStep / 5</small>
+                                </div>
+                            }
+
+                            <div class="face-guide-text @GetLivenessClass()">
+                                @livenessMessage
+                            </div>
+
+                            <div class="face-status-icon">
+                                @if (livenessStep == 0)
+                                {
+                                    <span>👤</span>
+                                }
+                                else if (livenessStep == 5)
+                                {
+                                    <span>✅</span>
+                                }
+                                else if (livenessStep == 1)
+                                {
+                                    <span>👁️</span>
+                                }
+                                else if (livenessStep == 2)
+                                {
+                                    <span>🔍</span>
+                                }
+                                else if (livenessStep == 3)
+                                {
+                                    <span>↩️</span>
+                                }
+                                else if (livenessStep == 4)
+                                {
+                                    <span>🔍</span>
+                                }
+                                else
+                                {
+                                    <span>⏳</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="camera-controls mt-3">
+                        <!-- Manual capture removed for auto-register flow.
+                             Keep Stop Camera available as fallback. -->
+                        <button class="btn btn-secondary"
+                                @onclick="StopCameraAsync"
+                                disabled="@isProcessing">
+                            ❌ Tắt Camera
+                        </button>
+                    </div>
+                }
+            </div>
+
+            <div class="alert alert-info">
+                <h6>📌 Hướng dẫn:</h6>
+                <ol class="mb-0">
+                    <li>Chọn nhân viên cần đăng ký</li>
+                    <li>Nhấn "Bật Camera"</li>
+                    <li>Làm theo hướng dẫn: Nhìn thẳng → Lại gần → Quay trái → Quay phải</li>
+                    <li>Hệ thống tự chụp sau 2 giây khi hoàn thành bước 5 và tự đăng ký</li>
+                    <li>Nếu đăng ký thành công, camera sẽ dừng và thông báo hiển thị</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Đồng bộ theo Attendance (Attendance là chuẩn) */
+    .register-face-container {
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 0 0.75rem;
+    }
+
+    .page-title {
+        text-align: center;
+        color: #512bd4;
+        margin-bottom: 1.25rem; /* match Attendance */
+    }
+
+    .card {
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.06); /* match Attendance */
+        border-radius: 10px;
+    }
+
+    .webcam-section {
+        background-color: #f8f9fa;
+        padding: 1rem; /* match Attendance */
+        border-radius: 8px;
+    }
+
+        .webcam-section h5 {
+            margin-bottom: 0.75rem;
+            font-size: 0.95rem;
+        }
+
+    .camera-placeholder {
+        background: #e9ecef;
+        border: 1.5px dashed #b3b8bd;
+        border-radius: 8px;
+        padding: 2rem;
+        text-align: center;
+    }
+
+    /* VIDEO wrapper - same as Attendance */
+    .video-wrapper {
+        position: relative;
+        width: 100%;
+        max-width: 780px;
+        margin: 0 auto;
+    }
+
+    .video-container {
+        position: relative;
+        width: 100%;
+        background: #000;
+        border-radius: 8px;
+        overflow: hidden;
+        aspect-ratio: 4 / 3; /* ensure stable ratio like Attendance */
+    }
+
+    #webcam {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+    }
+
+    .guide-ellipse.captured {
+        animation: capture-flash 0.8s ease-in-out 1;
+        stroke-width: 6 !important;
+        opacity: 1 !important;
+    }
+
+    @@keyframes capture-flash {
+        0% {
+            transform: scale(1);
+            opacity: 1;
+            stroke: #28a745;
+        }
+
+        40% {
+            transform: scale(1.12);
+            opacity: 0.95;
+            stroke: #ffffff;
+        }
+
+        100% {
+            transform: scale(1);
+            opacity: 1;
+            stroke: #28a745;
+        }
+    }
+
+    .camera-controls {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .alert-info ol {
+        padding-left: 1.2rem;
+    }
+
+    .alert-info li {
+        margin-bottom: 0.5rem;
+    }
+
+    /* Overlay: same placement & behavior as Attendance */
+    .face-guide-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .face-guide-frame {
+        width: clamp(260px, 70%, 460px); /* match Attendance */
+        max-width: 94%;
+        max-height: 94%;
+        height: auto;
+        box-sizing: border-box;
+        opacity: 0.96;
+        display: block;
+        transition: width 160ms ease, opacity 160ms ease, transform 160ms ease;
+    }
+
+        .face-guide-frame .guide-ellipse {
+            stroke: rgba(255,255,255,0.98);
+            stroke-width: 7;
+            stroke-dasharray: 14 9;
+            stroke-linecap: round;
+            filter: drop-shadow(0 3px 8px rgba(0,0,0,0.55));
+            transition: stroke 200ms ease, stroke-width 140ms ease, stroke-dasharray 200ms ease, filter 200ms ease;
+        }
+
+            .face-guide-frame .guide-ellipse.liveness-step-5,
+            .face-guide-frame .liveness-step-5.guide-ellipse {
+                stroke: #28a745;
+                stroke-dasharray: 8 4;
+                stroke-width: 7;
+                filter: drop-shadow(0 4px 10px rgba(40,167,69,0.45));
+            }
+
+        .face-guide-frame svg,
+        .face-guide-frame {
+            display: block;
+        }
+
+    .liveness-progress {
+        position: absolute;
+        top: 8%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 86%;
+        max-width: 640px;
+        z-index: 1010;
+    }
+
+    .face-guide-text {
+        position: absolute;
+        bottom: 6%;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1025;
+        color: #fff;
+        text-align: center;
+        padding: 4px 8px;
+        background: rgba(0,0,0,0.45);
+        border-radius: 6px;
+        font-weight: 500;
+        font-size: 0.88rem;
+        line-height: 1.1;
+        max-width: 86%;
+        box-sizing: border-box;
+        transition: bottom 160ms ease, opacity 140ms ease;
+    }
+
+    .face-status-icon {
+        position: absolute;
+        top: 6%;
+        right: 6%;
+        z-index: 1015;
+        font-size: 1.1rem;
+    }
+
+    @@media (max-width: 640px) {
+        .face-guide-text {
+            bottom: 8px;
+            font-size: 0.78rem;
+            padding: 3px 8px;
+            max-width: 92%;
+        }
+
+        .register-face-container {
+            padding: 0 0.5rem;
+        }
+
+        .page-title {
+            font-size: 1.4rem;
+            margin-bottom: 0.9rem;
+        }
+
+        .webcam-section {
+            padding: 0.9rem;
+        }
+
+        .camera-placeholder {
+            padding: 1.6rem;
+        }
+
+        .face-guide-frame {
+            width: clamp(160px, 74%, 300px);
+            max-width: 90%;
+            max-height: 86%;
+        }
+
+            .face-guide-frame svg {
+                width: 100%;
+                height: auto;
+            }
+
+            .face-guide-frame .guide-ellipse {
+                stroke-width: 6;
+                stroke-dasharray: 12 10;
+            }
+    }
+</style>
+
+@code {
+    private List<EmployeeDto> employees = new();
+    private int selectedEmployeeId = 0;
+    private bool isCameraStarted = false;
+    private bool isProcessing = false;
+    private string message = "";
+    private bool isSuccess = false;
+
+    private int livenessStep = 0;
+    private string livenessMessage = "Nhấn 'Bật Camera' để bắt đầu";
+
+    private DotNetObjectReference<RegisterFace>? dotNetRef;
+    private bool _isDisposed = false;
+
+    // NEW fields for auto-capture flow
+    private bool isAutoCapturing = false;
+    private CancellationTokenSource? _autoCaptureCts;
+    private FaceCaptureResult? lastCapturedFace = null;
+    private bool capturedEffect = false;
+
+    // NEW: request JS start after render
+    private bool _startWebcamAfterRender = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        employees = await ApiService.GetEmployeesAsync();
+    }
+
+    private async Task StartCameraAsync()
+    {
+        if (selectedEmployeeId == 0)
+        {
+            message = "Vui lòng chọn nhân viên trước!";
+            isSuccess = false;
+            return;
+        }
+
+        try
+        {
+            isProcessing = true;
+            message = "";
+
+            var hasPermission = await CheckCameraPermission();
+            if (!hasPermission)
+            {
+                isProcessing = false;
+                return;
+            }
+
+            // Yêu cầu render video rồi gọi JS trong OnAfterRenderAsync
+            isCameraStarted = true;
+            _startWebcamAfterRender = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            message = $"❌ Lỗi bật camera: {ex.Message}";
+            isSuccess = false;
+            isCameraStarted = false;
+            isProcessing = false;
+            Console.WriteLine($"❌ Lỗi bật camera: {ex.Message}");
+        }
+    }
+
+    // OnAfterRenderAsync đảm bảo DOM đã có <video id="webcam">
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_startWebcamAfterRender)
+        {
+            _startWebcamAfterRender = false;
+
+            try
+            {
+                await JS.InvokeVoidAsync("startWebcam", "webcam");
+
+                message = "✅ Camera đã sẵn sàng! Hoàn thành 5 bước xác thực để đăng ký";
+                isSuccess = true;
+
+                // Liveness bắt đầu sau khi camera đã start thành công
+                await StartLivenessDetectionAsync();
+
+                Console.WriteLine("✅ Camera đã bật - Liveness Detection bắt đầu");
+            }
+            catch (Exception ex)
+            {
+                message = $"❌ Lỗi bật camera: {ex.Message}";
+                isSuccess = false;
+                isCameraStarted = false;
+                Console.WriteLine($"❌ Lỗi bật camera (OnAfterRender): {ex.Message}");
+            }
+            finally
+            {
+                isProcessing = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task StopCameraAsync()
+    {
+        try
+        {
+            // cancel pending auto-capture if any
+            try { _autoCaptureCts?.Cancel(); } catch { }
+            await StopLivenessDetectionAsync();
+
+            // fallback: gọi stopWebcam không truyền id để dừng tất cả nếu cần
+            try
+            {
+                await JS.InvokeVoidAsync("stopWebcam", "webcam");
+            }
+            catch
+            {
+                try { await JS.InvokeVoidAsync("stopWebcam"); } catch { }
+            }
+
+            isCameraStarted = false;
+            Console.WriteLine("✅ Camera đã tắt");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi tắt camera: {ex.Message}");
+        }
+    }
+
+    private async Task StartLivenessDetectionAsync()
+    {
+        try
+        {
+            livenessStep = 0;
+            livenessMessage = "Chuẩn bị...";
+
+            try { dotNetRef?.Dispose(); } catch { }
+            dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("startLivenessDetectionRegister", "webcam", DotNetObjectReference.Create(this));
+
+            Console.WriteLine("✅ Đã bắt đầu Liveness Detection");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi bắt đầu liveness detection: {ex.Message}");
+            message = "Lỗi khởi động liveness detection";
+            isSuccess = false;
+        }
+    }
+
+    private async Task StopLivenessDetectionAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("stopLivenessDetection");
+            livenessStep = 0;
+            livenessMessage = "Nhấn 'Bật Camera' để bắt đầu";
+
+            Console.WriteLine("✅ Đã dừng Liveness Detection");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi dừng liveness detection: {ex.Message}");
+        }
+        finally
+        {
+            try { dotNetRef?.Dispose(); } catch { }
+            dotNetRef = null;
+
+            try { _autoCaptureCts?.Cancel(); } catch { }
+            _autoCaptureCts = null;
+            isAutoCapturing = false;
+            capturedEffect = false;
+        }
+    }
+
+    [JSInvokable]
+    public void UpdateLivenessStep(int step, string message)
+    {
+        livenessStep = step;
+        livenessMessage = message;
+        StateHasChanged();
+
+        Console.WriteLine($"📍 Liveness Step {step}: {message}");
+
+        if (step == 5)
+        {
+            // cancel previous pending auto-capture and start new delayed capture
+            try { _autoCaptureCts?.Cancel(); } catch { }
+            _ = StartAutoCaptureAfterDelayAsync();
+        }
+        else
+        {
+            // any time we leave step 5, cancel pending auto-capture
+            try { _autoCaptureCts?.Cancel(); } catch { }
+        }
+    }
+
+    private string GetLivenessClass()
+    {
+        string cls;
+        if (livenessStep == 0) cls = "status-idle";
+        else if (livenessStep == 5) cls = "liveness-step-5";
+        else cls = $"liveness-step-{livenessStep}";
+
+        if (capturedEffect)
+        {
+            cls += " captured";
+        }
+
+        return cls;
+    }
+
+    private int GetProgressPercentage() => livenessStep * 20;
+    private string GetProgressBarClass() => livenessStep == 5 ? "bg-success" : "bg-warning";
+
+    private async Task<bool> CheckCameraPermission()
+    {
+        try
+        {
+            var status = await JS.InvokeAsync<PermissionStatus>("checkPermissionsStatus");
+
+            if (status.Camera == "denied")
+            {
+                message = "⚠️ Bạn đã từ chối quyền Camera. Vui lòng vào Cài đặt để bật lại.";
+                isSuccess = false;
+                var instructions = await JS.InvokeAsync<string>("showPermissionInstructions", "camera");
+                Console.WriteLine(instructions);
+                return false;
+            }
+
+            if (status.Camera == "prompt" || status.Camera == "unknown")
+            {
+                message = "⚠️ Cần cấp quyền Camera để đăng ký khuôn mặt.";
+                isSuccess = false;
+                await Task.Delay(1500);
+                Navigation.NavigateTo("/permission-setup");
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi kiểm tra camera permission: {ex.Message}");
+            return true;
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _ = DisposeAndStopAsync();
+    }
+
+    private async Task DisposeAndStopAsync()
+    {
+        if (_isDisposed) return;
+
+        try
+        {
+            try { _autoCaptureCts?.Cancel(); } catch { }
+            await StopLivenessDetectionAsync();
+            try { await JS.InvokeVoidAsync("stopWebcam", "webcam"); } catch { try { await JS.InvokeVoidAsync("stopWebcam"); } catch { } }
+            isCameraStarted = false;
+        }
+        catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_isDisposed) return;
+
+        Navigation.LocationChanged -= OnLocationChanged;
+        try { _autoCaptureCts?.Cancel(); } catch { }
+        await DisposeAndStopAsync();
+        try { dotNetRef?.Dispose(); } catch { }
+        dotNetRef = null;
+        _isDisposed = true;
+    }
+
+    private class PermissionStatus
+    {
+        public string Camera { get; set; } = "";
+        public string Location { get; set; } = "";
+        public bool AllGranted { get; set; }
+    }
+
+    private class FaceCaptureResult
+    {
+        public double[] Descriptor { get; set; } = Array.Empty<double>();
+        public double Score { get; set; }
+    }
+
+    // Auto-capture 2s after liveness step 5 => multi-sample register (captures 5 good samples)
+    private async Task StartAutoCaptureAfterDelayAsync()
+    {
+        _autoCaptureCts?.Cancel();
+        _autoCaptureCts = new CancellationTokenSource();
+        var token = _autoCaptureCts.Token;
+
+        try
+        {
+            // wait 2 seconds
+            await Task.Delay(2000, token);
+            if (token.IsCancellationRequested) return;
+            if (livenessStep != 5) return;
+            if (isAutoCapturing) return;
+            if (selectedEmployeeId == 0) return;
+
+            isAutoCapturing = true;
+            isProcessing = true;
+            capturedEffect = true;
+            StateHasChanged();
+
+            // short flash before capture
+            await Task.Delay(300, token);
+
+            // Multi-sample capture parameters
+            const int samplesRequired = 5;
+            const double minCaptureScore = 0.45; // tune as needed
+            var collected = new List<FaceCaptureResult>();
+            var attempts = 0;
+            var maxAttempts = samplesRequired * 4; // allow retries
+
+            while (collected.Count < samplesRequired && attempts < maxAttempts && !token.IsCancellationRequested)
+            {
+                attempts++;
+
+                FaceCaptureResult? sample = null;
+                try
+                {
+                    sample = await JS.InvokeAsync<FaceCaptureResult>("captureFaceDescriptor", "webcam");
+                }
+                catch (Exception jsEx)
+                {
+                    Console.WriteLine($"❌ captureFaceDescriptor error (attempt {attempts}): {jsEx.Message}");
+                }
+
+                if (sample != null && sample.Descriptor != null && sample.Descriptor.Length == 128 && sample.Score >= minCaptureScore)
+                {
+                    collected.Add(sample);
+                    Console.WriteLine($"📸 Collected sample #{collected.Count} score={sample.Score:F3}");
+                    // small delay between captures to allow micro-movements
+                    await Task.Delay(250, token);
+                }
+                else
+                {
+                    // if sample exists but low quality, give user hint by resetting liveness to step 2
+                    if (sample != null)
+                    {
+                        Console.WriteLine($"⚠️ Sample rejected (score={sample.Score:F3}), attempt {attempts}");
+                    }
+                    await Task.Delay(300, token);
+                }
+            }
+
+            capturedEffect = false;
+            StateHasChanged();
+
+            if (collected.Count == 0)
+            {
+                message = "⚠️ Không chụp được mẫu đủ tốt. Vui lòng thử lại với ánh sáng tốt hơn.";
+                isSuccess = false;
+
+                isProcessing = false;
+                isAutoCapturing = false;
+
+                livenessStep = 1;
+                await StartLivenessDetectionAsync();
+                return;
+            }
+
+            // compute centroid (element-wise average)
+            var centroid = new double[128];
+            foreach (var d in collected)
+            {
+                for (int i = 0; i < 128; i++) centroid[i] += d.Descriptor[i];
+            }
+            for (int i = 0; i < 128; i++) centroid[i] /= collected.Count;
+
+            // L2-normalize centroid
+            double sumSq = 0;
+            foreach (var v in centroid) sumSq += v * v;
+            var norm = Math.Sqrt(sumSq);
+            if (norm > 0)
+            {
+                for (int i = 0; i < 128; i++) centroid[i] /= norm;
+            }
+
+            // call API to register centroid
+            try
+            {
+                var (success, msg) = await ApiService.RegisterFaceAsync(selectedEmployeeId, centroid);
+                message = msg;
+                isSuccess = success;
+
+                if (success)
+                {
+                    livenessStep = 0;
+                    livenessMessage = "Đăng ký thành công!";
+                    await StopCameraAsync();
+                }
+                else
+                {
+                    // registration failed -> allow retry
+                    livenessStep = 1;
+                    await StartLivenessDetectionAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ RegisterFace API error: {ex.Message}");
+                message = $"Lỗi đăng ký: {ex.Message}";
+                isSuccess = false;
+
+                livenessStep = 1;
+                await StartLivenessDetectionAsync();
+            }
+        }
+        catch (TaskCanceledException) { /* normal on cancel */ }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ StartAutoCaptureAfterDelayAsync error: {ex.Message}");
+            message = $"Lỗi: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            try
+            {
+                isProcessing = false;
+                isAutoCapturing = false;
+                capturedEffect = false;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
+        }
+    }
+
+    // Keep manual capture as a fallback method (not shown in UI)
+    private async Task CaptureFaceAsync()
+    {
+        if (selectedEmployeeId == 0)
+        {
+            message = "Vui lòng chọn nhân viên!";
+            isSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        message = "";
+
+        try
+        {
+            var result = await JS.InvokeAsync<FaceCaptureResult>("captureFaceDescriptor", "webcam");
+
+            if (result == null || result.Descriptor == null || result.Descriptor.Length != 128)
+            {
+                message = "Không phát hiện khuôn mặt. Vui lòng thử lại!";
+                isSuccess = false;
+                return;
+            }
+
+            Console.WriteLine($"📸 Đã chụp khuôn mặt, descriptor length: {result.Descriptor.Length}");
+            Console.WriteLine($"📊 Detection score: {result.Score:F3}");
+
+            var (success, msg) = await ApiService.RegisterFaceAsync(selectedEmployeeId, result.Descriptor);
+
+            message = msg;
+            isSuccess = success;
+
+            if (success)
+            {
+                livenessStep = 0;
+                livenessMessage = "Đăng ký thành công!";
+                await StopCameraAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            message = $"Lỗi: {ex.Message}";
+            isSuccess = false;
+            Console.WriteLine($"❌ Lỗi chụp khuôn mặt: {ex.Message}");
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+}

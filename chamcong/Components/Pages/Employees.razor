@@ -1,0 +1,131 @@
+﻿@page "/employees"
+@rendermode InteractiveServer
+@inject ApiService ApiService
+
+<PageTitle>Danh sách nhân viên</PageTitle>
+
+<div class="employees-container">
+    <h2 class="page-title">👥 Danh Sách Nhân Viên</h2>
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Đang tải...</span>
+            </div>
+        </div>
+    }
+    else if (employees.Any())
+    {
+        <div class="row">
+            @foreach (var emp in employees)
+            {
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card employee-card">
+                        <div class="card-body">
+                            <div class="employee-avatar">
+                                @emp.FullName.Substring(0, 1)
+                            </div>
+                            <h5 class="card-title text-center mt-3">@emp.FullName</h5>
+                            <p class="text-center text-muted mb-3">
+                                <strong>@emp.EmployeeCode</strong>
+                            </p>
+                            <div class="employee-info">
+                                <p>
+                                    <span class="bi bi-envelope"></span>
+                                    <a href="mailto:@emp.Email">@emp.Email</a>
+                                </p>
+                                @if (!string.IsNullOrEmpty(emp.PhoneNumber))
+                                {
+                                    <p>
+                                        <span class="bi bi-phone"></span>
+                                        @emp.PhoneNumber
+                                    </p>
+                                }
+                                @if (!string.IsNullOrEmpty(emp.Department))
+                                {
+                                    <p>
+                                        <span class="bi bi-building"></span>
+                                        @emp.Department - @emp.Position
+                                    </p>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            Chưa có nhân viên nào trong hệ thống.
+        </div>
+    }
+</div>
+
+<style>
+    .employees-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .page-title {
+        text-align: center;
+        color: #512bd4;
+        margin-bottom: 2rem;
+    }
+
+    .employee-card {
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-radius: 10px;
+        transition: transform 0.3s;
+    }
+
+        .employee-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.2);
+        }
+
+    .employee-avatar {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        font-weight: bold;
+        margin: 0 auto;
+    }
+
+    .employee-info p {
+        margin-bottom: 0.5rem;
+        font-size: 0.9rem;
+    }
+
+    .employee-info .bi {
+        margin-right: 0.5rem;
+        color: #512bd4;
+    }
+</style>
+
+@code {
+    private List<EmployeeDto> employees = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            employees = await ApiService.GetEmployeesAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

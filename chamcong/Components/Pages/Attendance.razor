@@ -1,0 +1,1663 @@
+﻿@page "/attendance"
+@rendermode InteractiveServer
+@inject ApiService ApiService
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<PageTitle>Chấm công</PageTitle>
+
+<div class="attendance-container">
+    <h2 class="page-title">📸 Chấm Công</h2>
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert alert-@(isSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
+            <strong>@(isSuccess ? "✅" : "❌")</strong> @message
+            <button type="button" class="btn-close" @onclick="() => message = string.Empty"></button>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            <!-- Webcam cho nhận diện khuôn mặt -->
+            <div class="webcam-section mb-4">
+                <h5>📹 Nhận diện khuôn mặt</h5>
+
+                @if (!isCameraStarted)
+                {
+                    <div class="camera-placeholder">
+                        <p class="text-muted">Nhấn "Chấm công VÀO" hoặc "Chấm công RA" — hệ thống sẽ tự mở camera, quét khuôn mặt và chấm công.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="video-wrapper">
+                        <div class="video-container">
+                            <video id="attendanceWebcam"
+                                   autoplay
+                                   muted
+                                   playsinline
+                                   webkit-playsinline
+                                   style="width:100%; height:auto; aspect-ratio:4/3; object-fit:cover; display:@(isCameraStarted ? "block" : "none");">
+                            </video>
+                        </div>
+
+                        <!-- ✅ Liveness Detection Overlay -->
+                        <div class="face-guide-overlay">
+                            <svg class="face-guide-frame" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid meet">
+                                <ellipse cx="150"
+                                         cy="200"
+                                         rx="140"
+                                         ry="180"
+                                         fill="none"
+                                         stroke="currentColor"
+                                         stroke-width="3"
+                                         stroke-dasharray="10 5"
+                                         class="guide-ellipse @GetLivenessClass()" />
+                            </svg>
+
+                            <!-- Progress Bar -->
+                            @if (livenessStep > 0)
+                            {
+                                <div class="liveness-progress">
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar @GetProgressBarClass()"
+                                             role="progressbar"
+                                             style="width: @GetProgressPercentage()%"
+                                             aria-valuenow="@livenessStep"
+                                             aria-valuemin="0"
+                                             aria-valuemax="@maxLivenessSteps">
+                                        </div>
+                                    </div>
+                                    <small class="text-white mt-1">@GetProgressText()</small>
+                                </div>
+                            }
+
+                            <!-- Văn bản hướng dẫn Liveness -->
+                            <div class="face-guide-text @GetLivenessClass()">
+                                @livenessMessage
+                            </div>
+
+                            <!-- Icon trạng thái -->
+                            <div class="face-status-icon">
+                                @GetStatusIcon()
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (isRecognizing)
+                    {
+                        <div class="recognizing-overlay">
+                            <div class="spinner-border text-light" role="status"></div>
+                            <p class="text-light mt-2">Đang nhận diện khuôn mặt...</p>
+                        </div>
+                    }
+
+                    <div class="text-center mt-2">
+                        <button class="btn btn-secondary btn-sm" @onclick="() => StopCameraAsync()">
+                            ⏹️ Tắt Camera
+                        </button>
+                    </div>
+                }
+            </div>
+
+            <!-- Nút chấm công -->
+            <div class="d-grid gap-3 attendance-actions">
+                <button class="btn btn-success btn-lg"
+                        @onclick="StartCheckInAsync"
+                        disabled="@isProcessing">
+                    @if (isProcessing && processingAction == "checkin")
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    ✅ Chấm công VÀO
+                </button>
+
+                <button class="btn btn-danger btn-lg"
+                        @onclick="StartCheckOutAsync"
+                        disabled="@isProcessing">
+                    @if (isProcessing && processingAction == "checkout")
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    🚪 Chấm công RA
+                </button>
+            </div>
+
+            <!-- Thông tin nhận diện -->
+            @if (recognizedEmployee != null)
+            {
+                <div class="alert alert-success">
+                    <h6>✅ Đã nhận diện:</h6>
+                    <p class="mb-0">
+                        <strong>@recognizedEmployee.FullName</strong> (@recognizedEmployee.EmployeeCode)<br />
+                        <small>Độ khớp: @faceMatchScore.ToString("P1")</small>
+                    </p>
+                </div>
+            }
+
+            <!-- Thông tin GPS -->
+            <div class="gps-info mb-4">
+                @if (gpsLocation != null)
+                {
+                    <div class="alert alert-info compact-alert">
+                        <strong>Tọa độ:</strong> @gpsLocation.Latitude.ToString("F6"), @gpsLocation.Longitude.ToString("F6")<br />
+                        <strong>Độ chính xác:</strong> ±@gpsLocation.Accuracy.ToString("F1") m
+                        @if (lastDistanceMeters.HasValue)
+                        {
+                            <div class="mt-2 small">
+                                <strong>Khoảng cách tới công ty:</strong> @lastDistanceMeters.Value.ToString("F1") m
+                                @if (companyCoordsAvailable)
+                                {
+                                    @if (lastWithinThreshold)
+                                    {
+                                        <span class="badge bg-success ms-2">Trong phạm vi (@LocationAcceptThresholdMeters m)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning text-dark ms-2">Ngoài phạm vi (@LocationAcceptThresholdMeters m)</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary ms-2">Chưa cấu hình vị trí công ty</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            @* @if (isCameraStarted && !IsLivenessComplete())
+            {
+                <p class="text-center text-warning mt-3 small">
+                    🔒 Hoàn thành xác thực khuôn mặt (@GetCompletionSteps()) trước khi hệ thống tự chụp để chấm công
+                </p>
+            } *@
+        </div>
+    </div>
+
+    <!-- Lịch sử hôm nay -->
+    @if (todayRecords.Any())
+    {
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">📋 Chấm công hôm nay</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Nhân viên</th>
+                                <th>Giờ vào</th>
+                                <th>Giờ ra</th>
+                                <th>GPS</th>
+                                <th>Độ khớp</th>
+                                <th>Độ lệch vị trí vào</th>
+                                <th>Độ lệch vị trí ra</th>
+                                <th>Ghi chú</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var record in todayRecords)
+                            {
+                                <tr>
+                                    <td>@record.EmployeeName</td>
+                                    <td>@record.CheckInTime.ToString("HH:mm")</td>
+                                    <td>@(record.CheckOutTime?.ToString("HH:mm") ?? "-")</td>
+                                    <td>
+                                        @if (record.Latitude.HasValue && record.Longitude.HasValue)
+                                        {
+                                            <span class="badge bg-success">✅</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">❌</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (record.FaceMatchScore.HasValue)
+                                        {
+                                            <span class="badge bg-@(record.FaceMatchScore >= 0.7 ? "success" : "warning")">
+                                                @record.FaceMatchScore.Value.ToString("P0")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">N/A</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (record.CheckInDistanceMeters.HasValue)
+                                        {
+                                            <span class="badge bg-info">@record.CheckInDistanceMeters.Value.ToString("F1") m</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+
+                                    <td>
+                                        @if (record.CheckOutDistanceMeters.HasValue)
+                                        {
+                                            <span class="badge bg-info">@record.CheckOutDistanceMeters.Value.ToString("F1") m</span>
+                                        }
+                                        else if (record.CheckOutTime.HasValue)
+                                        {
+                                            <span class="badge bg-warning">⚠️ Chưa có GPS</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                    </td>
+                                    <td style="min-width:220px; max-width:360px;">
+                                        <div>
+                                            <input class="form-control form-control-sm"
+                                                   value="@GetNoteValue(record.Id)"
+                                                   @oninput="@(e => SetNoteValue(record.Id, ((ChangeEventArgs)e).Value?.ToString()))"
+                                                   placeholder="Nhập ghi chú (hỗ trợ tiếng Việt)" />
+                                            <div class="mt-1 d-flex align-items-center gap-2">
+                                                <button class="btn btn-primary btn-sm" @onclick="() => SaveNoteAsync(record)" disabled="@notesSaving.Contains(record.Id)">
+                                                    @if (notesSaving.Contains(record.Id))
+                                                    {
+                                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                                    }
+                                                    Lưu
+                                                </button>
+                                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => CancelNoteEdit(record)" disabled="@notesSaving.Contains(record.Id)">
+                                                    Huỷ
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    /* [GIỮ NGUYÊN TẤT CẢ CSS CŨ - KHÔNG THAY ĐỔI] */
+    .attendance-container {
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 0 0.75rem;
+    }
+
+    .page-title {
+        text-align: center;
+        color: #512bd4;
+        margin-bottom: 1.25rem;
+    }
+
+    .card {
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.06);
+        border-radius: 10px;
+    }
+
+    .webcam-section {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+    }
+
+        .webcam-section h5 {
+            margin-bottom: 0.75rem;
+            font-size: 0.95rem;
+        }
+
+    .camera-placeholder {
+        background: #e9ecef;
+        border: 1.5px dashed #b3b8bd;
+        border-radius: 8px;
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .video-wrapper {
+        position: relative;
+        width: 100%;
+        max-width: 780px;
+        margin: 0 auto;
+    }
+
+    .video-container {
+        position: relative;
+        width: 100%;
+        background: #000;
+        border-radius: 8px;
+        overflow: hidden;
+        aspect-ratio: 4 / 3;
+    }
+
+    #attendanceWebcam {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+    }
+
+    .face-guide-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .face-guide-frame {
+        width: clamp(260px, 70%, 460px);
+        max-width: 94%;
+        max-height: 94%;
+        height: auto;
+        box-sizing: border-box;
+        opacity: 0.96;
+        display: block;
+        transition: width 160ms ease, opacity 160ms ease, transform 160ms ease;
+    }
+
+        .face-guide-frame .guide-ellipse {
+            stroke: rgba(255,255,255,0.98);
+            stroke-width: 7;
+            stroke-dasharray: 14 9;
+            stroke-linecap: round;
+            filter: drop-shadow(0 3px 8px rgba(0,0,0,0.55));
+            transition: stroke 200ms ease, stroke-width 140ms ease, stroke-dasharray 200ms ease, filter 200ms ease;
+        }
+
+            .face-guide-frame .guide-ellipse.liveness-complete,
+            .face-guide-frame .liveness-complete.guide-ellipse {
+                stroke: #28a745;
+                stroke-dasharray: 14 9;
+                stroke-width: 7;
+                filter: drop-shadow(0 4px 10px rgba(40,167,69,0.45));
+            }
+
+        .face-guide-frame svg,
+        .face-guide-frame {
+            display: block;
+        }
+
+    .liveness-progress {
+        position: absolute;
+        top: 8%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 86%;
+        max-width: 640px;
+        z-index: 1010;
+    }
+
+    .face-guide-text {
+        position: absolute;
+        bottom: 6%;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1025;
+        color: #fff;
+        text-align: center;
+        padding: 4px 8px;
+        background: rgba(0,0,0,0.45);
+        border-radius: 6px;
+        font-weight: 500;
+        font-size: 0.88rem;
+        line-height: 1.1;
+        max-width: 86%;
+        box-sizing: border-box;
+        transition: bottom 160ms ease, opacity 140ms ease;
+    }
+
+    .face-status-icon {
+        position: absolute;
+        top: 6%;
+        right: 6%;
+        z-index: 1015;
+        font-size: 1.1rem;
+    }
+
+    .recognizing-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 8px;
+        background: rgba(0,0,0,0.35);
+        z-index: 1020;
+        color: #fff;
+        pointer-events: none;
+    }
+
+    .gps-info {
+        background-color: #f8f9fa;
+        padding: 0.65rem;
+        border-radius: 8px;
+    }
+
+        .gps-info h5 {
+            margin: 0 0 0.5rem;
+            font-size: 0.95rem;
+        }
+
+        .gps-info .compact-alert {
+            margin: 0;
+            padding: 0.5rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.88rem;
+        }
+
+        .gps-info p.small {
+            margin: 0;
+            color: #6c757d;
+        }
+
+    .attendance-actions {
+        gap: 0.5rem;
+        margin-top: 0.6rem;
+    }
+
+        .attendance-actions .btn-lg {
+            padding: 0.55rem 0.8rem;
+            font-size: 1rem;
+            border-radius: 8px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+            .attendance-actions .btn-lg:hover:not(:disabled) {
+                transform: translateY(-2px) scale(1.02);
+                box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+            }
+
+            .attendance-actions .btn-lg:active:not(:disabled) {
+                transform: translateY(0) scale(0.98);
+                box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+                transition: all 0.1s ease;
+            }
+
+            .attendance-actions .btn-lg::before {
+                content: '';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 0;
+                height: 0;
+                border-radius: 50%;
+                background: rgba(255,255,255,0.3);
+                transform: translate(-50%, -50%);
+                transition: width 0.6s, height 0.6s;
+            }
+
+            .attendance-actions .btn-lg:active:not(:disabled)::before {
+                width: 300px;
+                height: 300px;
+            }
+
+            .attendance-actions .btn-lg:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+                transform: none !important;
+            }
+
+        .attendance-actions .btn-success {
+            background: linear-gradient(135deg, #2e8b57 0%, #1e7a4d 100%);
+            border: none;
+        }
+
+            .attendance-actions .btn-success:hover:not(:disabled) {
+                background: linear-gradient(135deg, #3aa668 0%, #25915e 100%);
+            }
+
+        .attendance-actions .btn-danger {
+            background: linear-gradient(135deg, #e08b8b 0%, #d45b5b 100%);
+            border: none;
+        }
+
+            .attendance-actions .btn-danger:hover:not(:disabled) {
+                background: linear-gradient(135deg, #e89d9d 0%, #dc6f6f 100%);
+            }
+
+    .text-muted.small {
+        font-size: 0.88rem;
+    }
+
+    .attendance-container .alert {
+        padding: 0.55rem 0.75rem;
+        margin-bottom: 0.75rem;
+        border-radius: 8px;
+    }
+
+    @@media (max-width: 640px) {
+        .face-guide-text {
+            bottom: 8px;
+            font-size: 0.78rem;
+            padding: 3px 8px;
+            max-width: 92%;
+        }
+
+        .attendance-container {
+            padding: 0 0.5rem;
+        }
+
+        .page-title {
+            font-size: 1.4rem;
+            margin-bottom: 0.9rem;
+        }
+
+        .webcam-section {
+            padding: 0.9rem;
+        }
+
+        .camera-placeholder {
+            padding: 1.6rem;
+        }
+
+        .gps-info {
+            padding: 0.5rem;
+        }
+
+        .attendance-actions .btn-lg {
+            padding: 0.6rem;
+            font-size: 0.98rem;
+        }
+
+        .face-guide-frame {
+            width: clamp(160px, 74%, 300px);
+            max-width: 90%;
+            max-height: 86%;
+        }
+
+            .face-guide-frame svg {
+                width: 100%;
+                height: auto;
+            }
+
+            .face-guide-frame .guide-ellipse {
+                stroke-width: 6;
+                stroke-dasharray: 12 10;
+            }
+    }
+
+    @@media (min-width: 641px) {
+        .attendance-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.6rem;
+        }
+    }
+</style>
+
+@code {
+    private Dictionary<int, string?> notesEditable = new();
+    private Dictionary<int, string?> notesOriginal = new();
+    private HashSet<int> notesSaving = new();
+
+    private string? CompanyLocationUrl { get; set; }
+    private double? CompanyLat;
+    private double? CompanyLng;
+    private bool companyCoordsAvailable => CompanyLat.HasValue && CompanyLng.HasValue;
+    private double LocationAcceptThresholdMeters { get; set; } = 40.0;
+
+    private double? lastDistanceMeters = null;
+    private bool lastWithinThreshold = false;
+
+    private bool isAutoCapturing = false;
+    private CancellationTokenSource? _autoCaptureCts;
+    private FaceCaptureResult? lastCapturedFace = null;
+    private bool capturedEffect = false;
+
+    private DotNetObjectReference<Attendance>? livenessDotNetRef;
+    private List<EmployeeDto> employees = new();
+    private List<AttendanceHistoryDto> todayRecords = new();
+    private EmployeeDto? recognizedEmployee = null;
+    private LocationDto? gpsLocation = null;
+
+    private bool isCameraStarted = false;
+    private bool isProcessing = false;
+    private string? processingAction = null;
+    private bool isRecognizing = false;
+    private string message = "";
+    private bool isSuccess = false;
+    private double faceMatchScore = 0;
+
+    private string? pendingAttendanceAction = null;
+
+    // ✅ CẬP NHẬT: Liveness Detection với số bước động
+    private int livenessStep = 0; // 0=khởi đầu, 1-2=hành động ngẫu nhiên, 3=hoàn thành
+    private string livenessMessage = "";
+    private const int NUM_RANDOM_ACTIONS = 2; // Số hành động ngẫu nhiên
+    private int maxLivenessSteps => NUM_RANDOM_ACTIONS + 1; // Tổng số bước (bao gồm bước hoàn thành)
+
+    private bool _startWebcamAfterRender = false;
+    private bool _isDisposed = false;
+
+    private const double MinDetectionScore = 0.45;
+    private const double MinSimilarityPercent = 70.0;
+
+    // ✅ THÊM: Helper methods cho UI động
+    private bool IsLivenessComplete() => livenessStep > NUM_RANDOM_ACTIONS;
+
+    private string GetCompletionSteps()
+    {
+        if (livenessStep == 0) return $"nhìn thẳng + {NUM_RANDOM_ACTIONS} hành động";
+        if (livenessStep > NUM_RANDOM_ACTIONS) return "Đã hoàn thành";
+        int remaining = NUM_RANDOM_ACTIONS - livenessStep + 1;
+        return $"còn {remaining} bước";
+    }
+
+    private string GetProgressText()
+    {
+        if (livenessStep == 0) return "Bắt đầu";
+        if (livenessStep > NUM_RANDOM_ACTIONS) return "Hoàn thành";
+        return $"Bước {livenessStep} / {NUM_RANDOM_ACTIONS}";
+    }
+
+    private string GetStatusIcon()
+    {
+        if (livenessStep == 0) return "👤";
+        if (livenessStep > NUM_RANDOM_ACTIONS) return "✅";
+
+        // Icon động dựa trên message từ JS
+        if (livenessMessage.Contains("TRÁI")) return "↩️";
+        if (livenessMessage.Contains("PHẢI")) return "↪️";
+        if (livenessMessage.Contains("GẦN")) return "🔍";
+        if (livenessMessage.Contains("LÙI")) return "🔙";
+        if (livenessMessage.Contains("thẳng")) return "👁️";
+
+        return "⏳";
+    }
+
+    private string GetLivenessClass()
+    {
+        string cls;
+        if (livenessStep == 0)
+            cls = "status-idle";
+        else if (IsLivenessComplete())
+            cls = "liveness-complete";
+        else
+            cls = $"liveness-step-{livenessStep}";
+
+        if (capturedEffect)
+            cls += " captured";
+
+        return cls;
+    }
+
+    private int GetProgressPercentage()
+    {
+        if (livenessStep == 0) return 0;
+        if (IsLivenessComplete()) return 100;
+        // Chia đều progress: bước khởi đầu (0) + 2 hành động = 3 bước tổng
+        // Mỗi bước = 33.33%
+        return (livenessStep * 100) / maxLivenessSteps;
+    }
+
+    private string GetProgressBarClass()
+    {
+        if (IsLivenessComplete()) return "bg-success";
+        return "bg-warning";
+    }
+
+    [JSInvokable]
+    public void UpdateLivenessStep(int step, string message)
+    {
+        livenessStep = step;
+        livenessMessage = message;
+        StateHasChanged();
+
+        Console.WriteLine($"📍 Attendance Liveness Step {step}: {message}");
+
+        // Khi hoàn thành (step > NUM_RANDOM_ACTIONS)
+        if (IsLivenessComplete())
+        {
+            try { _autoCaptureCts?.Cancel(); } catch { }
+            _ = StartAutoCaptureAfterDelayAsync();
+        }
+        else
+        {
+            try { _autoCaptureCts?.Cancel(); } catch { }
+        }
+    }
+
+    /*
+     * ✅ GHI CHÚ: CÁC PHƯƠNG THỨC SAU KHÔNG THAY ĐỔI, CHỈ CẬP NHẬT ĐIỀU KIỆN KIỂM TRA
+     * - Thay livenessStep == 5 thành IsLivenessComplete()
+     * - Thay "5 bước" thành GetCompletionSteps() trong message
+     */
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        employees = await ApiService.GetEmployeesAsync();
+        await LoadTodayRecordsAsync();
+
+        try
+        {
+            var cs = await ApiService.GetCompanySettingsAsync();
+            if (cs != null)
+            {
+                CompanyLocationUrl = cs.CompanyLocationUrl;
+                CompanyLat = cs.CompanyLat;
+                CompanyLng = cs.CompanyLng;
+                LocationAcceptThresholdMeters = cs.LocationAcceptThresholdMeters ?? LocationAcceptThresholdMeters;
+                Console.WriteLine($"✅ Loaded company settings: url={CompanyLocationUrl}, lat={CompanyLat}, lng={CompanyLng}, threshold={LocationAcceptThresholdMeters}");
+            }
+
+            if (!companyCoordsAvailable && !string.IsNullOrWhiteSpace(CompanyLocationUrl))
+            {
+                if (TryParseGoogleMapsUrl(CompanyLocationUrl, out var lat, out var lng))
+                {
+                    CompanyLat = lat;
+                    CompanyLng = lng;
+                    Console.WriteLine($"✅ Parsed company coords from URL: {CompanyLat},{CompanyLng}");
+                }
+                else
+                {
+                    Console.WriteLine("⚠️ Không thể parse Google Maps URL thành tọa độ.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Lỗi khi load company settings: {ex.Message}");
+        }
+    }
+
+    private async Task StartCameraAsync()
+    {
+        try
+        {
+            isProcessing = true;
+            message = "";
+
+            var hasPermission = await CheckCameraPermission();
+            if (!hasPermission)
+            {
+                isProcessing = false;
+                return;
+            }
+
+            isCameraStarted = true;
+            _startWebcamAfterRender = false;
+            await InvokeAsync(StateHasChanged);
+
+            try
+            {
+                await JS.InvokeVoidAsync("startWebcam", "attendanceWebcam");
+
+                livenessStep = 0; // ✅ Bắt đầu từ bước 0
+                livenessMessage = "👁️ Nhìn thẳng vào camera";
+                message = $"✅ Camera đã sẵn sàng!";
+                isSuccess = true;
+
+                await StartLivenessDetectionAsync();
+
+                Console.WriteLine("✅ Camera đã bật - Liveness Detection bắt đầu");
+            }
+            catch (Exception ex)
+            {
+                message = $"❌ Lỗi bật camera: {ex.Message}";
+                isSuccess = false;
+                isCameraStarted = false;
+                Console.WriteLine($"❌ Lỗi bật camera (StartCameraAsync): {ex.Message}");
+            }
+        }
+        finally
+        {
+            isProcessing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_startWebcamAfterRender)
+        {
+            _startWebcamAfterRender = false;
+
+            try
+            {
+                await JS.InvokeVoidAsync("startWebcam", "attendanceWebcam");
+
+                message = $"✅ Camera đã sẵn sàng!";
+                isSuccess = true;
+
+                await StartLivenessDetectionAsync();
+
+                Console.WriteLine("✅ Camera đã bật - Liveness Detection bắt đầu");
+            }
+            catch (Exception ex)
+            {
+                message = $"❌ Lỗi bật camera: {ex.Message}";
+                isSuccess = false;
+                isCameraStarted = false;
+                Console.WriteLine($"❌ Lỗi bật camera (OnAfterRender): {ex.Message}");
+            }
+            finally
+            {
+                isProcessing = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task StopCameraAsync(bool preserveMessage = false)
+    {
+        try
+        {
+            await StopLivenessDetectionAsync();
+
+            try
+            {
+                await JS.InvokeVoidAsync("stopWebcam", "attendanceWebcam");
+            }
+            catch
+            {
+                try { await JS.InvokeVoidAsync("stopWebcam"); } catch { }
+            }
+
+            isCameraStarted = false;
+            livenessStep = 0;
+
+            if (!preserveMessage)
+            {
+                livenessMessage = "";
+                message = "Camera đã tắt";
+                isSuccess = true;
+                recognizedEmployee = null;
+            }
+
+            lastCapturedFace = null;
+            pendingAttendanceAction = null;
+            capturedEffect = false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi tắt camera: {ex.Message}");
+        }
+    }
+
+    private async Task StartCheckInAsync()
+    {
+        if (isProcessing) return;
+        pendingAttendanceAction = "checkin";
+        message = "⏳ Mở camera và bắt đầu nhận diện để chấm công VÀO...";
+        isSuccess = true;
+
+        if (!isCameraStarted)
+        {
+            await StartCameraAsync();
+        }
+        else
+        {
+            if (IsLivenessComplete()) // ✅ CẬP NHẬT
+            {
+                _ = StartAutoCaptureAfterDelayAsync();
+            }
+        }
+    }
+
+    private async Task StartCheckOutAsync()
+    {
+        if (isProcessing) return;
+        pendingAttendanceAction = "checkout";
+        message = "⏳ Mở camera và bắt đầu nhận diện để chấm công RA...";
+        isSuccess = true;
+
+        if (!isCameraStarted)
+        {
+            await StartCameraAsync();
+        }
+        else
+        {
+            if (IsLivenessComplete()) // ✅ CẬP NHẬT
+            {
+                _ = StartAutoCaptureAfterDelayAsync();
+            }
+        }
+    }
+
+    private async Task PerformAttendanceAsync(bool isCheckIn)
+    {
+        if (!IsLivenessComplete()) // ✅ CẬP NHẬT
+        {
+            message = $"⚠️ Vui lòng hoàn thành xác thực khuôn mặt ({GetCompletionSteps()}) trước!";
+            isSuccess = false;
+            await StopCameraAsync();
+            return;
+        }
+
+        isProcessing = true;
+        processingAction = isCheckIn ? "checkin" : "checkout";
+        message = "";
+        recognizedEmployee = null;
+
+        EmployeeDto? matchedEmployee = null;
+        double bestMatchScore = 0;
+
+        try
+        {
+            isRecognizing = true;
+            StateHasChanged();
+
+            FaceCaptureResult? capturedFace = null;
+
+            if (lastCapturedFace != null)
+            {
+                capturedFace = lastCapturedFace;
+                lastCapturedFace = null;
+            }
+            else
+            {
+                capturedFace = await JsInvokeWithTimeout(() => JS.InvokeAsync<FaceCaptureResult>("captureFaceDescriptor", "attendanceWebcam").AsTask(), 6000);
+
+                if (capturedFace == null)
+                {
+                    Console.WriteLine("❌ captureFaceDescriptor returned null or timed out");
+                    message = "⚠️ Không phát hiện khuôn mặt hoặc timeout. Vui lòng thử lại.";
+                    isSuccess = false;
+                    isRecognizing = false;
+
+                    processingAction = null;
+                    isProcessing = false;
+                    capturedEffect = false;
+
+                    await StopCameraAsync(preserveMessage: true);
+                    return;
+                }
+            }
+
+            if (capturedFace == null || capturedFace.Descriptor == null || capturedFace.Descriptor.Length != 128)
+            {
+                message = "⚠️ Không phát hiện khuôn mặt. Vui lòng thử lại.";
+                isSuccess = false;
+                isRecognizing = false;
+
+                processingAction = null;
+                isProcessing = false;
+                capturedEffect = false;
+
+                await StopCameraAsync(preserveMessage: true);
+                return;
+            }
+
+            Console.WriteLine($"📸 Đã chụp khuôn mặt, detection score: {capturedFace.Score:F3}");
+
+            if (capturedFace.Score < MinDetectionScore)
+            {
+                message = "⚠️ Ảnh chụp kém chất lượng (độ tin cậy thấp). Vui lòng thử lại trong điều kiện ánh sáng tốt hơn.";
+                isSuccess = false;
+                isRecognizing = false;
+                processingAction = null;
+                isProcessing = false;
+                await StopCameraAsync(preserveMessage: true);
+                return;
+            }
+
+            foreach (var emp in employees)
+            {
+                var storedDescriptor = await ApiService.GetFaceDescriptorAsync(emp.Id);
+                if (storedDescriptor == null || storedDescriptor.Length != 128) continue;
+
+                var comparison = await JS.InvokeAsync<FaceComparisonResult>(
+                    "compareFaceDescriptors",
+                    capturedFace.Descriptor,
+                    storedDescriptor
+                );
+
+                Console.WriteLine($"🔍 So sánh với {emp.FullName}: Distance={comparison.Distance:F3}, Similarity={comparison.Similarity:F1}%");
+
+                if (comparison.Similarity >= MinSimilarityPercent && comparison.Similarity > bestMatchScore)
+                {
+                    bestMatchScore = comparison.Similarity;
+                    matchedEmployee = emp;
+                }
+            }
+
+            isRecognizing = false;
+
+            if (matchedEmployee == null)
+            {
+                message = "⚠️ Không nhận diện được khuôn mặt đáng tin cậy. Vui lòng đăng ký khuôn mặt trước (Trang: Đăng ký khuôn mặt).";
+                isSuccess = false;
+
+                await StopCameraAsync(preserveMessage: true);
+                return;
+            }
+
+            recognizedEmployee = matchedEmployee;
+            faceMatchScore = bestMatchScore / 100.0;
+
+            Console.WriteLine($"✅ Nhận diện thành công: {matchedEmployee.FullName} (Score: {faceMatchScore:P1})");
+
+            await InvokeAsync(StateHasChanged);
+
+            string? imageDataUrl = null;
+            try
+            {
+                imageDataUrl = await JsInvokeWithTimeout(() => JS.InvokeAsync<string?>("captureImageDataUrl", "attendanceWebcam", 640, 480).AsTask(), 5000);
+                Console.WriteLine($"📷 Chụp ảnh: {(imageDataUrl != null ? "thành công" : "null/thất bại")}");
+            }
+            catch (Exception jsImgEx)
+            {
+                Console.WriteLine($"⚠️ Không thể chụp ảnh: {jsImgEx.Message}");
+                imageDataUrl = null;
+            }
+
+            gpsLocation = await JsInvokeWithTimeout(() => JS.InvokeAsync<LocationDto>("getGeolocation").AsTask(), 5000);
+
+            lastDistanceMeters = null;
+            lastWithinThreshold = false;
+
+            if (gpsLocation != null && companyCoordsAvailable)
+            {
+                lastDistanceMeters = HaversineDistanceMeters(gpsLocation.Latitude, gpsLocation.Longitude, CompanyLat.Value, CompanyLng.Value);
+                lastWithinThreshold = lastDistanceMeters <= LocationAcceptThresholdMeters;
+            }
+            else if (gpsLocation != null && !companyCoordsAvailable && !string.IsNullOrWhiteSpace(CompanyLocationUrl))
+            {
+                if (TryParseGoogleMapsUrl(CompanyLocationUrl, out var latC, out var lngC))
+                {
+                    CompanyLat = latC;
+                    CompanyLng = lngC;
+                    lastDistanceMeters = HaversineDistanceMeters(gpsLocation.Latitude, gpsLocation.Longitude, CompanyLat.Value, CompanyLng.Value);
+                    lastWithinThreshold = lastDistanceMeters <= LocationAcceptThresholdMeters;
+                }
+            }
+
+            string? deviceInfo = null;
+            string? clientIp = null;
+
+            try
+            {
+                deviceInfo = await JS.InvokeAsync<string>("getDeviceInfo");
+                Console.WriteLine($"📱 Device Info: {deviceInfo}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Không lấy được device info: {ex.Message}");
+                deviceInfo = "Unknown Device";
+            }
+
+            try
+            {
+                clientIp = await JS.InvokeAsync<string>("getPublicIP");
+                Console.WriteLine($"🌐 Client IP: {clientIp}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Không lấy được IP: {ex.Message}");
+                clientIp = "Unknown";
+            }
+
+            var dto = new AttendanceDto
+            {
+                EmployeeId = matchedEmployee.Id,
+                CheckInTime = isCheckIn ? DateTime.Now : default,
+                CheckOutTime = isCheckIn ? null : DateTime.Now,
+                Location = "Văn phòng KOSMOS DEVELOPMENT",
+                Latitude = gpsLocation?.Latitude,
+                Longitude = gpsLocation?.Longitude,
+                Accuracy = gpsLocation?.Accuracy,
+                FaceMatchScore = faceMatchScore,
+                IsManualEntry = false,
+                CheckInDistanceMeters = isCheckIn ? lastDistanceMeters : null,
+                CheckOutDistanceMeters = !isCheckIn ? lastDistanceMeters : null,
+                CheckInFaceImageBase64 = isCheckIn ? imageDataUrl : null,
+                CheckOutFaceImageBase64 = !isCheckIn ? imageDataUrl : null,
+
+                CheckInIp = isCheckIn ? clientIp : null,
+                CheckOutIp = !isCheckIn ? clientIp : null,
+                CheckInDeviceInfo = isCheckIn ? deviceInfo : null,
+                CheckOutDeviceInfo = !isCheckIn ? deviceInfo : null
+
+
+            };
+
+            var result = isCheckIn
+                ? await ApiService.CheckInAsync(dto)
+                : await ApiService.CheckOutAsync(dto);
+
+            Console.WriteLine($"🔁 API result: Success={(result?.Success ?? false)}, Message='{result?.Message ?? "<null>"}'");
+
+            if (result != null && result.Success)
+            {
+                var baseMsg = string.IsNullOrWhiteSpace(result.Message)
+                              ? (isCheckIn ? "Chấm công VÀO thành công" : "Chấm công RA thành công")
+                              : result.Message;
+
+                if (recognizedEmployee != null && !string.IsNullOrWhiteSpace(recognizedEmployee.FullName))
+                {
+                    if (!baseMsg.Contains(recognizedEmployee.FullName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        baseMsg = $"{baseMsg} — {recognizedEmployee.FullName}";
+                    }
+                }
+
+                if (lastDistanceMeters.HasValue)
+                {
+                    message = $"{baseMsg} Khoảng cách tới công ty: {lastDistanceMeters.Value:F1} m. {(lastWithinThreshold ? "Trong phạm vi" : "Ngoài phạm vi")}.";
+                }
+                else if (gpsLocation == null)
+                {
+                    message = $"{baseMsg} (Không có GPS)";
+                }
+                else if (!companyCoordsAvailable)
+                {
+                    message = $"{baseMsg} (Vị trí công ty chưa cấu hình)";
+                }
+                else
+                {
+                    message = baseMsg;
+                }
+
+                isSuccess = true;
+                await LoadTodayRecordsAsync();
+            }
+            else
+            {
+                message = result?.Message ?? (isCheckIn ? "Chấm công VÀO thất bại" : "Chấm công RA thất bại");
+                isSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            message = $"Lỗi: {ex.Message}";
+            isSuccess = false;
+            isRecognizing = false;
+            Console.WriteLine($"❌ Lỗi chấm công: {ex.Message}");
+        }
+        finally
+        {
+            processingAction = null;
+            isProcessing = false;
+
+            try
+            {
+                await StopCameraAsync(preserveMessage: true);
+            }
+            catch { }
+        }
+    }
+
+    private static double HaversineDistanceMeters(double lat1, double lon1, double lat2, double lon2)
+    {
+        double R = 6371000;
+        double toRad = Math.PI / 180.0;
+        var dLat = (lat2 - lat1) * toRad;
+        var dLon = (lon2 - lon1) * toRad;
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                Math.Cos(lat1 * toRad) * Math.Cos(lat2 * toRad) *
+                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+        return R * c;
+    }
+
+    private static bool TryParseGoogleMapsUrl(string url, out double lat, out double lng)
+    {
+        lat = 0; lng = 0;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(url)) return false;
+            var rx3d4d = new System.Text.RegularExpressions.Regex(@"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)");
+            var m34 = rx3d4d.Match(url);
+            if (m34.Success)
+            {
+                if (double.TryParse(m34.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                    double.TryParse(m34.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                    return true;
+            }
+
+            var atIndex = url.IndexOf("/@");
+            if (atIndex >= 0)
+            {
+                var seg = url.Substring(atIndex + 2);
+                var parts = seg.Split(',');
+                if (parts.Length >= 2 &&
+                    double.TryParse(parts[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                    double.TryParse(parts[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                {
+                    return true;
+                }
+            }
+
+            var placeIndex = url.IndexOf("/place/");
+            if (placeIndex >= 0)
+            {
+                var seg = url.Substring(placeIndex + 7);
+                var parts = seg.Split(new[] { '/', '?', '&' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0)
+                {
+                    var first = parts[0];
+                    var coords = first.Split(',');
+                    if (coords.Length >= 2 &&
+                        double.TryParse(coords[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                        double.TryParse(coords[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                var q = query.Get("q");
+                if (!string.IsNullOrEmpty(q))
+                {
+                    var coords = q.Split(',');
+                    if (coords.Length >= 2 &&
+                        double.TryParse(coords[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                        double.TryParse(coords[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            var rx = new System.Text.RegularExpressions.Regex(@"(-?\d+\.\d+),\s*(-?\d+\.\d+)");
+            var matches = rx.Matches(url);
+            if (matches.Count > 0)
+            {
+                var m = matches[matches.Count - 1];
+                if (double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                    double.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                {
+                    return true;
+                }
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private async Task LoadTodayRecordsAsync()
+    {
+        todayRecords = await ApiService.GetTodayAttendanceAsync();
+
+        notesEditable.Clear();
+        notesOriginal.Clear();
+        foreach (var r in todayRecords)
+        {
+            notesEditable[r.Id] = r.Notes;
+            notesOriginal[r.Id] = r.Notes;
+        }
+    }
+
+    private string? GetNoteValue(int id) => notesEditable.TryGetValue(id, out var v) ? v : null;
+    private void SetNoteValue(int id, string? value) => notesEditable[id] = value;
+
+    private async Task SaveNoteAsync(AttendanceHistoryDto record)
+    {
+        var id = record.Id;
+        notesSaving.Add(id);
+        StateHasChanged();
+
+        var note = notesEditable.TryGetValue(id, out var v) ? v : null;
+        var ok = await ApiService.UpdateAttendanceNoteAsync(id, note);
+        if (ok)
+        {
+            notesOriginal[id] = note;
+            message = "✅ Đã lưu ghi chú";
+            isSuccess = true;
+            await LoadTodayRecordsAsync();
+        }
+        else
+        {
+            message = "❌ Lưu ghi chú thất bại";
+            isSuccess = false;
+        }
+
+        notesSaving.Remove(id);
+        StateHasChanged();
+    }
+
+    private void CancelNoteEdit(AttendanceHistoryDto record)
+    {
+        notesEditable[record.Id] = notesOriginal.TryGetValue(record.Id, out var orig) ? orig : null;
+    }
+
+    private async Task StartLivenessDetectionAsync()
+    {
+        try
+        {
+            livenessStep = 0;
+            livenessMessage = "Chuẩn bị...";
+
+            try { livenessDotNetRef?.Dispose(); } catch { }
+            livenessDotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("startLivenessDetection", "attendanceWebcam", DotNetObjectReference.Create(this));
+
+            Console.WriteLine("✅ Đã bắt đầu Liveness Detection cho Attendance");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi bắt đầu liveness detection: {ex.Message}");
+            message = "Lỗi khởi động xác thực khuôn mặt";
+            isSuccess = false;
+        }
+    }
+
+    private async Task StopLivenessDetectionAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("stopLivenessDetection");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi dừng liveness detection (JS): {ex.Message}");
+        }
+        finally
+        {
+            try { livenessDotNetRef?.Dispose(); } catch { }
+            livenessDotNetRef = null;
+
+            livenessStep = 0;
+            livenessMessage = "";
+
+            Console.WriteLine("✅ Đã dừng Liveness Detection (attendance)");
+        }
+    }
+
+    private async Task<T?> JsInvokeWithTimeout<T>(Func<Task<T>> jsCall, int timeoutMs = 5000)
+    {
+        try
+        {
+            var jsTask = jsCall();
+            var delay = Task.Delay(timeoutMs);
+            var completed = await Task.WhenAny(jsTask, delay);
+            if (completed != jsTask)
+            {
+                Console.WriteLine($"❌ JS call timeout after {timeoutMs}ms");
+                return default;
+            }
+            return await jsTask;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ JsInvokeWithTimeout error: {ex.Message}");
+            return default;
+        }
+    }
+
+    private async Task StartAutoCaptureAfterDelayAsync()
+    {
+        _autoCaptureCts?.Cancel();
+        _autoCaptureCts = new CancellationTokenSource();
+        var token = _autoCaptureCts.Token;
+
+        try
+        {
+            await Task.Delay(2000, token);
+            if (token.IsCancellationRequested) return;
+            if (!IsLivenessComplete()) return; // ✅ CẬP NHẬT
+            if (isAutoCapturing) return;
+
+            isAutoCapturing = true;
+            await InvokeAsync(() =>
+            {
+                isRecognizing = true;
+                capturedEffect = true;
+                StateHasChanged();
+            });
+
+            await Task.Delay(300, token);
+
+            FaceCaptureResult? capturedFace = null;
+
+            if (lastCapturedFace != null)
+            {
+                capturedFace = lastCapturedFace;
+                lastCapturedFace = null;
+            }
+            else
+            {
+                capturedFace = await JsInvokeWithTimeout(() => JS.InvokeAsync<FaceCaptureResult>("captureFaceDescriptor", "attendanceWebcam").AsTask(), 6000);
+                if (capturedFace == null)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        message = "⚠️ Không phát hiện khuôn mặt. Vui lòng đưa mặt lại gần camera.";
+                        isSuccess = false;
+                        isRecognizing = false;
+                        StateHasChanged();
+                    });
+
+                    await StopCameraAsync(preserveMessage: true);
+                    return;
+                }
+            }
+
+            if (capturedFace == null || capturedFace.Descriptor == null || capturedFace.Descriptor.Length != 128)
+            {
+                await InvokeAsync(() =>
+                {
+                    message = "⚠️ Không phát hiện khuôn mặt. Vui lòng đưa mặt lại gần camera.";
+                    isSuccess = false;
+                    isRecognizing = false;
+                    StateHasChanged();
+                });
+
+                await StopCameraAsync(preserveMessage: true);
+                return;
+            }
+
+            Console.WriteLine($"📸 Auto-capture detection score: {capturedFace.Score:F3}");
+
+            if (capturedFace.Score < MinDetectionScore)
+            {
+                await InvokeAsync(() =>
+                {
+                    message = "⚠️ Ảnh chụp kém chất lượng. Vui lòng thử lại.";
+                    isSuccess = false;
+                    isRecognizing = false;
+                    StateHasChanged();
+                });
+                await StopCameraAsync(preserveMessage: true);
+                return;
+            }
+
+            lastCapturedFace = capturedFace;
+
+            EmployeeDto? matchedEmployee = null;
+            double bestMatchScore = 0;
+
+            foreach (var emp in employees)
+            {
+                var storedDescriptor = await ApiService.GetFaceDescriptorAsync(emp.Id);
+                if (storedDescriptor == null || storedDescriptor.Length != 128)
+                {
+                    continue;
+                }
+
+                var comparison = await JS.InvokeAsync<FaceComparisonResult>(
+                    "compareFaceDescriptors",
+                    capturedFace.Descriptor,
+                    storedDescriptor
+                );
+
+                if (comparison.Similarity >= MinSimilarityPercent && comparison.Similarity > bestMatchScore)
+                {
+                    bestMatchScore = comparison.Similarity;
+                    matchedEmployee = emp;
+                }
+            }
+
+            isRecognizing = false;
+            isAutoCapturing = false;
+
+            if (matchedEmployee == null)
+            {
+                await InvokeAsync(() =>
+                {
+                    message = "⚠️ Không nhận diện được khuôn mặt. Vui lòng đăng kí khuôn mặt hoặc thử lại !";
+                    isSuccess = false;
+                    StateHasChanged();
+                });
+
+                await StopCameraAsync(preserveMessage: true);
+                return;
+            }
+
+            recognizedEmployee = matchedEmployee;
+            faceMatchScore = bestMatchScore / 100.0;
+
+            await InvokeAsync(() =>
+            {
+                message = $"✅ Tự nhận diện: {recognizedEmployee.FullName} (Độ khớp: {faceMatchScore:P1}).";
+                isSuccess = true;
+                StateHasChanged();
+            });
+
+            if (!string.IsNullOrEmpty(pendingAttendanceAction))
+            {
+                var action = pendingAttendanceAction;
+                pendingAttendanceAction = null;
+                await InvokeAsync(async () => await PerformAttendanceAsync(action == "checkin"));
+            }
+            else
+            {
+                await InvokeAsync(() =>
+                {
+                    message = $"✅ Tự nhận diện: {recognizedEmployee.FullName} (Độ khớp: {faceMatchScore:P1}). Vui lòng bấm Chấm công.";
+                    isSuccess = true;
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (TaskCanceledException) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ StartAutoCaptureAfterDelayAsync error: {ex.Message}");
+        }
+        finally
+        {
+            try
+            {
+                isRecognizing = false;
+                isAutoCapturing = false;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _ = DisposeAndStopAsync();
+    }
+
+    private async Task DisposeAndStopAsync()
+    {
+        if (_isDisposed) return;
+
+        try
+        {
+            await StopLivenessDetectionAsync();
+
+            try
+            {
+                await JS.InvokeVoidAsync("stopWebcam", "attendanceWebcam");
+            }
+            catch
+            {
+                try { await JS.InvokeVoidAsync("stopWebcam"); } catch { }
+            }
+
+            isCameraStarted = false;
+        }
+        catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_isDisposed) return;
+
+        Navigation.LocationChanged -= OnLocationChanged;
+        await DisposeAndStopAsync();
+
+        try { livenessDotNetRef?.Dispose(); } catch { }
+        livenessDotNetRef = null;
+
+        _isDisposed = true;
+    }
+
+    private async Task<bool> CheckCameraPermission()
+    {
+        try
+        {
+            var status = await JS.InvokeAsync<PermissionStatus>("checkPermissionsStatus");
+
+            if (status.Camera == "denied")
+            {
+                message = "⚠️ Bạn đã từ chối quyền Camera. Vui lòng vào Cài đặt để bật lại.";
+                isSuccess = false;
+
+                var instructions = await JS.InvokeAsync<string>("showPermissionInstructions", "camera");
+                Console.WriteLine(instructions);
+
+                return false;
+            }
+
+            if (status.Camera == "prompt" || status.Camera == "unknown")
+            {
+                message = "⚠️ Cần cấp quyền Camera để sử dụng chức năng này.";
+                isSuccess = false;
+
+                await Task.Delay(1500);
+                Navigation.NavigateTo("/permission-setup");
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Lỗi kiểm tra camera permission: {ex.Message}");
+            return true;
+        }
+    }
+
+    private class PermissionStatus
+    {
+        public string Camera { get; set; } = "";
+        public string Location { get; set; } = "";
+        public bool AllGranted { get; set; }
+    }
+
+    private class FaceCaptureResult
+    {
+        public double[] Descriptor { get; set; } = Array.Empty<double>();
+        public double Score { get; set; }
+    }
+
+    private class FaceComparisonResult
+    {
+        public double Distance { get; set; }
+        public double Similarity { get; set; }
+        public bool IsMatch { get; set; }
+    }
+}
