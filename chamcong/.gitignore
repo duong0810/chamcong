@@ -23,3 +23,6 @@ Thumbs.db
 *.swp
 
 Add-Content .gitignore "`n.vs/"
+Add-Content .gitignore "`nchamcong/wwwroot/uploads/"
+Add-Content .gitignore "`n.data.sql"
+Add-Content .gitignore "`n.fix.txt"
