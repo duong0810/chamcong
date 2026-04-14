@@ -9,6 +9,7 @@
 + Độ lệch vị trí từ GPS điện thoại tới địa chỉ công ty
 + IP vào/ra
 + Thiết bị vào/ra
++ 
 •	Công nghệ chính
 •	Backend: .NET 8, ASP.NET Core (Blazor Server Interactive).
 •	ORM/DB: Entity Framework Core → SQL Server.
@@ -16,6 +17,8 @@
 •	Face/ML client: face-api.js (vladmandic build) — tải model từ CDN.
 •	Browser APIs: getUserMedia, Canvas, SVG, CSS transforms.
 •	Dev / infra: Swagger, SignalR tuning (timeouts), HttpClient (ApiService).
+
+BE
 •	wwwroot/js/face-recognition.js — toàn bộ logic camera, liveness, capture, descriptor, overlay, mũi tên hướng dẫn.
 •	Components/Pages/Attendance.razor — UI gọi startWebcam / startLivenessDetection (random liveness).
 •	Components/Pages/RegisterFace.razor — UI gọi startLivenessDetectionRegister (5 bước cố định).
