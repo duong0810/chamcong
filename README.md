@@ -1,15 +1,15 @@
 
-  Mục tiêu chính
-	Hệ thống chấm công bằng nhận diện khuôn mặt + GPS.
-	2 luồng chính: Attendance (chấm nhanh) và RegisterFace (đăng ký khuôn mặt chất lượng cao).
- Lưu lịch sử ngày giờ ngày tháng năm 
- giờ vào/ra
- ảnh chụp vào/ra lúc chấm công
- tổng số giờ làm việc
- GPS vào/ra
- Độ lệch vị trí từ GPS điện thoại tới địa chỉ công ty
- IP vào/ra
- Thiết bị vào/ra
+  * Mục tiêu chính
+- Hệ thống chấm công bằng nhận diện khuôn mặt + GPS.
+- 2 luồng chính: Attendance (chấm nhanh) và RegisterFace (đăng ký khuôn mặt chất lượng cao).
+ - Lưu lịch sử ngày giờ ngày tháng năm 
+ - giờ vào/ra
+ - ảnh chụp vào/ra lúc chấm công
+ - tổng số giờ làm việc
+ - GPS vào/ra
+ - Độ lệch vị trí từ GPS điện thoại tới địa chỉ công ty
+ - IP vào/ra
+ - Thiết bị vào/ra
   
 	Công nghệ chính
 	Backend: .NET 8, ASP.NET Core (Blazor Server Interactive).
