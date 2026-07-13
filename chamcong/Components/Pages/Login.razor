@@ -1,0 +1,250 @@
+﻿@page "/login"
+@layout EmptyLayout
+@rendermode InteractiveServer
+@inject ApiService ApiService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Đăng nhập</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <!-- Header -->
+        <div class="login-header">
+            <div class="login-icon">🏢</div>
+            <h2>Hệ Thống Chấm Công</h2>
+            <p class="login-subtitle">Vui lòng đăng nhập để tiếp tục</p>
+        </div>
+
+        <!-- Form -->
+        <div class="login-body">
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger d-flex align-items-center gap-2">
+                    <span>❌</span> @errorMessage
+                </div>
+            }
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Tên đăng nhập</label>
+                <input class="form-control form-control-lg @(errors.ContainsKey("Username") ? "is-invalid" : "")"
+                       @bind="loginModel.Username"
+                       @bind:event="oninput"
+                       @onkeydown="HandleKeyDown"
+                       placeholder="Nhập tên đăng nhập"
+                       autocomplete="username" />
+                @if (errors.ContainsKey("Username"))
+                {
+                    <div class="invalid-feedback">@errors["Username"]</div>
+                }
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label fw-semibold">Mật khẩu</label>
+                <div class="input-group">
+                    <input class="form-control form-control-lg @(errors.ContainsKey("Password") ? "is-invalid" : "")"
+                           type="@(showPassword ? "text" : "password")"
+                           @bind="loginModel.Password"
+                           @bind:event="oninput"
+                           @onkeydown="HandleKeyDown"
+                           placeholder="Nhập mật khẩu"
+                           autocomplete="current-password" />
+                    <button class="btn btn-outline-secondary" type="button"
+                            @onclick="() => showPassword = !showPassword">
+                        @(showPassword ? "🙈" : "👁️")
+                    </button>
+                    @if (errors.ContainsKey("Password"))
+                    {
+                        <div class="invalid-feedback">@errors["Password"]</div>
+                    }
+                </div>
+            </div>
+
+            <button class="btn btn-primary btn-lg w-100" @onclick="HandleLogin" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                    <span>Đang đăng nhập...</span>
+                }
+                else
+                {
+                    <span>🔐 Đăng nhập</span>
+                }
+            </button>
+        </div>
+
+        <div class="login-footer">
+            <small class="text-muted">© 2025 Hệ Thống Chấm Công</small>
+        </div>
+    </div>
+</div>
+
+<style>
+    .login-container {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #512bd4 0%, #7c56e0 100%);
+        padding: 1rem;
+    }
+
+    .login-card {
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        width: 100%;
+        max-width: 420px;
+        animation: slideUp 0.4s ease-out;
+        overflow: hidden;
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .login-header {
+        background: linear-gradient(135deg, #512bd4, #7c56e0);
+        color: white;
+        text-align: center;
+        padding: 2rem 1.5rem 1.5rem;
+    }
+
+    .login-icon {
+        font-size: 3.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .login-header h2 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin-bottom: 0.25rem;
+    }
+
+    .login-subtitle {
+        font-size: 0.9rem;
+        opacity: 0.85;
+        margin: 0;
+    }
+
+    .login-body {
+        padding: 2rem 1.75rem;
+    }
+
+    .login-footer {
+        text-align: center;
+        padding: 1rem;
+        border-top: 1px solid #e9ecef;
+        background: #f8f9fa;
+    }
+
+    .form-control-lg {
+        border-radius: 10px;
+        border: 1.5px solid #dee2e6;
+        transition: border-color 0.2s;
+    }
+
+        .form-control-lg:focus {
+            border-color: #512bd4;
+            box-shadow: 0 0 0 3px rgba(81, 43, 212, 0.15);
+        }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #512bd4, #7c56e0);
+        border: none;
+        border-radius: 10px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        transition: transform 0.1s, box-shadow 0.2s;
+    }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(81, 43, 212, 0.4);
+        }
+</style>
+
+@code {
+    private LoginDto loginModel = new();
+    private Dictionary<string, string> errors = new();
+    private string errorMessage = "";
+    private bool isLoading = false;
+    private bool showPassword = false;
+
+    // ✅ Đọc returnUrl từ query string (?returnUrl=...)
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthService.TryRestoreSessionAsync();
+
+            var isLoggedIn = await AuthService.IsLoggedInAsync();
+            if (isLoggedIn)
+                Navigation.NavigateTo("/home", false);
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await HandleLogin();
+    }
+
+    private bool Validate()
+    {
+        errors.Clear();
+        if (string.IsNullOrWhiteSpace(loginModel.Username))
+            errors["Username"] = "Tên đăng nhập không được để trống.";
+        if (string.IsNullOrWhiteSpace(loginModel.Password))
+            errors["Password"] = "Mật khẩu không được để trống.";
+        return errors.Count == 0;
+    }
+
+    private async Task HandleLogin()
+    {
+        if (!Validate()) return;
+
+        isLoading = true;
+        errorMessage = "";
+
+        try
+        {
+            var (user, error) = await ApiService.LoginAsync(loginModel);
+            if (user != null)
+            {
+                await AuthService.LoginAsync(user);
+
+                // ✅ Nếu có returnUrl → về đúng trang đã paste
+                // Nếu không có → về trang chủ mặc định
+                if (!string.IsNullOrEmpty(ReturnUrl))
+                {
+                    var decoded = Uri.UnescapeDataString(ReturnUrl);
+                    Navigation.NavigateTo(decoded, false);
+                }
+                else
+                {
+                    Navigation.NavigateTo("/", false);
+                }
+            }
+            else
+            {
+                errorMessage = error ?? "Đăng nhập thất bại.";
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

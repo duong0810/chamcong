@@ -1,0 +1,698 @@
+﻿@page "/admin/user-management"
+@rendermode InteractiveServer
+@inject ApiService ApiService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Quản lý phân quyền</PageTitle>
+
+@if (isChecking)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary"></div>
+    </div>
+}
+else if (!isAuthorized)
+{
+    <div class="alert alert-danger">⛔ Bạn không có quyền truy cập trang này.</div>
+}
+else
+{
+    <div class="um-container">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="page-title mb-0">🔐 Quản Lý Phân Quyền</h2>
+            <button class="btn btn-primary" @onclick="OpenAddModal">➕ Thêm tài khoản</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert alert-@(isSuccess ? "success" : "danger") alert-dismissible fade show">
+                <strong>@(isSuccess ? "✅" : "❌")</strong> @message
+                <button type="button" class="btn-close" @onclick="() => message = string.Empty"></button>
+            </div>
+        }
+
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary"></div>
+                <p class="mt-2 text-muted">Đang tải...</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Tên đăng nhập</th>
+                            <th>Họ tên</th>
+                            <th>Quyền</th>
+                            <th>Trạng thái</th>
+                            <th>Đăng nhập lần cuối</th>
+                            <th class="text-center">Thao tác</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in users)
+                        {
+                            <tr class="@(user.IsActive ? "" : "table-secondary text-muted")">
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="user-avatar">@user.Username.Substring(0, 1).ToUpper()</div>
+                                        <strong>@user.Username</strong>
+                                    </div>
+                                </td>
+                                <td>@user.FullName</td>
+                                <td>
+                                    <span class="badge role-badge-@user.Role.ToLower()">
+                                        @GetRoleLabel(user.Role)
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (user.IsActive)
+                                    {
+                                        <span class="badge bg-success">✅ Hoạt động</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">⛔ Vô hiệu</span>
+                                    }
+                                </td>
+                                <td>
+                                    <small>@(user.LastLoginAt.HasValue? user.LastLoginAt.Value.ToString("dd/MM/yyyy HH:mm") : "Chưa đăng nhập")</small>
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-warning" title="Đổi quyền"
+                                                @onclick="() => OpenChangeRoleModal(user)">
+                                            🎭
+                                        </button>
+                                        <button class="btn btn-outline-info" title="Đặt lại mật khẩu"
+                                                @onclick="() => OpenResetPasswordModal(user)">
+                                            🔑
+                                        </button>
+                                        <button class="btn @(user.IsActive ? "btn-outline-secondary" : "btn-outline-success")"
+                                                title="@(user.IsActive ? "Vô hiệu hóa" : "Kích hoạt")"
+                                                @onclick="() => ToggleActive(user)">
+                                            @(user.IsActive ? "🔒" : "🔓")
+                                        </button>
+                                        <button class="btn btn-outline-danger" title="Xóa"
+                                                @onclick="() => OpenDeleteModal(user)">
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <small class="text-muted">Tổng: @users.Count tài khoản</small>
+        }
+    </div>
+
+    <!-- ===== MODAL THÊM TÀI KHOẢN ===== -->
+    @if (showAddModal)
+    {
+        <div class="modal-backdrop-custom" @onclick="CloseModals"></div>
+        <div class="modal-custom">
+            <div class="modal-custom-dialog">
+                <div class="modal-custom-header">
+                    <h5>➕ Thêm tài khoản mới</h5>
+                    <button class="btn-close-custom" @onclick="CloseModals">✕</button>
+                </div>
+                <div class="modal-custom-body">
+                    <div class="row g-3">
+
+                        <!-- Tên đăng nhập -->
+                        <div class="col-md-6">
+                            <label class="form-label">Tên đăng nhập <span class="text-danger">*</span></label>
+                            <input class="form-control @(formErrors.ContainsKey("Username") ? "is-invalid" : "")"
+                                   @bind="addModel.Username" placeholder="VD: nguyenvana" />
+                            @if (formErrors.ContainsKey("Username"))
+                            {
+                                <div class="invalid-feedback">@formErrors["Username"]</div>
+                            }
+                        </div>
+
+                        <!-- Mật khẩu -->
+                        <div class="col-md-6">
+                            <label class="form-label">Mật khẩu <span class="text-danger">*</span></label>
+                            <input class="form-control @(formErrors.ContainsKey("Password") ? "is-invalid" : "")"
+                                   type="password" @bind="addModel.Password" placeholder="Tối thiểu 2 ký tự" />
+                            @if (formErrors.ContainsKey("Password"))
+                            {
+                                <div class="invalid-feedback">@formErrors["Password"]</div>
+                            }
+                        </div>
+
+                        <!-- Dropdown 1: Chọn phòng ban -->
+                        <div class="col-md-6">
+                            <label class="form-label">Phòng ban <span class="text-danger">*</span></label>
+                            @if (isLoadingData)
+                            {
+                                <div class="form-control text-muted">
+                                    <span class="spinner-border spinner-border-sm me-1"></span> Đang tải...
+                                </div>
+                            }
+                            else
+                            {
+                                <select class="form-select @(formErrors.ContainsKey("Department") ? "is-invalid" : "")"
+                                        value="@selectedDepartment"
+                                        @onchange="OnDepartmentChanged">
+                                    <option value="">-- Chọn phòng ban --</option>
+                                    @foreach (var dept in departments)
+                                    {
+                                        <option value="@dept.Name">@dept.Name</option>
+                                    }
+                                </select>
+                                @if (formErrors.ContainsKey("Department"))
+                                {
+                                    <div class="invalid-feedback">@formErrors["Department"]</div>
+                                }
+                            }
+                        </div>
+
+                        <!-- Dropdown 2: Chọn nhân viên (lọc theo phòng ban) -->
+                        <div class="col-md-6">
+                            <label class="form-label">Nhân viên <span class="text-danger">*</span></label>
+                            <select class="form-select @(formErrors.ContainsKey("FullName") ? "is-invalid" : "")"
+                                    value="@selectedEmployeeId"
+                                    @onchange="OnEmployeeChanged"
+                                    disabled="@(string.IsNullOrEmpty(selectedDepartment) || isLoadingData)">
+                                <option value="0">
+                                    @if (string.IsNullOrEmpty(selectedDepartment))
+                                    {
+                                        <text>-- Chọn phòng ban trước --</text>
+                                    }
+                                    else if (!EmployeesInDept.Any())
+                                    {
+                                        <text>-- Không có nhân viên --</text>
+                                    }
+                                    else
+                                    {
+                                        <text>-- Chọn nhân viên --</text>
+                                    }
+                                </option>
+                                @foreach (var emp in EmployeesInDept)
+                                {
+                                    <option value="@emp.Id">@emp.FullName (@emp.EmployeeCode)</option>
+                                }
+                            </select>
+                            @if (!string.IsNullOrEmpty(addModel.FullName))
+                            {
+                                <small class="text-success mt-1 d-block">✅ Đã chọn: <strong>@addModel.FullName</strong></small>
+                            }
+                            @if (formErrors.ContainsKey("FullName"))
+                            {
+                                <div class="invalid-feedback d-block">@formErrors["FullName"]</div>
+                            }
+                        </div>
+
+                        <!-- Quyền -->
+                        <div class="col-md-6">
+                            <label class="form-label">Quyền <span class="text-danger">*</span></label>
+                            <select class="form-select" @bind="addModel.Role">
+                                <option value="User">👤 Người dùng</option>
+                                <option value="Manager">🎯 Quản lý</option>
+                                <option value="Admin">👑 Quản trị viên</option>
+                            </select>
+                        </div>
+
+                    </div>
+                </div>
+                <div class="modal-custom-footer">
+                    <button class="btn btn-secondary" @onclick="CloseModals" disabled="@isSaving">Hủy</button>
+                    <button class="btn btn-primary" @onclick="HandleAddUser" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Thêm tài khoản
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ===== MODAL ĐỔI QUYỀN ===== -->
+    @if (showChangeRoleModal && selectedUser != null)
+    {
+        <div class="modal-backdrop-custom" @onclick="CloseModals"></div>
+        <div class="modal-custom">
+            <div class="modal-custom-dialog" style="max-width:400px;">
+                <div class="modal-custom-header">
+                    <h5>🎭 Đổi quyền tài khoản</h5>
+                    <button class="btn-close-custom" @onclick="CloseModals">✕</button>
+                </div>
+                <div class="modal-custom-body">
+                    <p>Tài khoản: <strong>@selectedUser.Username</strong> (@selectedUser.FullName)</p>
+                    <label class="form-label">Quyền mới</label>
+                    <select class="form-select form-select-lg" @bind="newRole">
+                        <option value="User">👤 Người dùng</option>
+                        <option value="Manager">🎯 Quản lý</option>
+                        <option value="Admin">👑 Quản trị viên</option>
+                    </select>
+                </div>
+                <div class="modal-custom-footer">
+                    <button class="btn btn-secondary" @onclick="CloseModals" disabled="@isSaving">Hủy</button>
+                    <button class="btn btn-warning" @onclick="HandleChangeRole" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Cập nhật quyền
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ===== MODAL RESET PASSWORD ===== -->
+    @if (showResetPasswordModal && selectedUser != null)
+    {
+        <div class="modal-backdrop-custom" @onclick="CloseModals"></div>
+        <div class="modal-custom">
+            <div class="modal-custom-dialog" style="max-width:400px;">
+                <div class="modal-custom-header">
+                    <h5>🔑 Đặt lại mật khẩu</h5>
+                    <button class="btn-close-custom" @onclick="CloseModals">✕</button>
+                </div>
+                <div class="modal-custom-body">
+                    <p>Tài khoản: <strong>@selectedUser.Username</strong></p>
+                    <label class="form-label">Mật khẩu mới <span class="text-danger">*</span></label>
+                    <input class="form-control @(formErrors.ContainsKey("NewPassword") ? "is-invalid" : "")"
+                           type="password" @bind="newPassword" placeholder="Tối thiểu 2 ký tự" />
+                    @if (formErrors.ContainsKey("NewPassword"))
+                    {
+                        <div class="invalid-feedback">@formErrors["NewPassword"]</div>
+                    }
+                </div>
+                <div class="modal-custom-footer">
+                    <button class="btn btn-secondary" @onclick="CloseModals" disabled="@isSaving">Hủy</button>
+                    <button class="btn btn-info text-white" @onclick="HandleResetPassword" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Đặt lại mật khẩu
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ===== MODAL XÁC NHẬN XÓA ===== -->
+    @if (showDeleteModal && selectedUser != null)
+    {
+        <div class="modal-backdrop-custom" @onclick="CloseModals"></div>
+        <div class="modal-custom">
+            <div class="modal-custom-dialog" style="max-width:400px;">
+                <div class="modal-custom-header" style="background:#dc3545;">
+                    <h5 style="color:white;">🗑️ Xác nhận xóa tài khoản</h5>
+                    <button class="btn-close-custom" style="color:white;" @onclick="CloseModals">✕</button>
+                </div>
+                <div class="modal-custom-body text-center py-4">
+                    <div style="font-size:3rem;">⚠️</div>
+                    <p class="mt-2">Bạn có chắc muốn xóa tài khoản:</p>
+                    <strong class="d-block fs-5">@selectedUser.Username</strong>
+                    <small class="text-muted">(@selectedUser.FullName)</small>
+                    <p class="text-danger mt-3 small">Hành động này không thể hoàn tác!</p>
+                </div>
+                <div class="modal-custom-footer">
+                    <button class="btn btn-secondary" @onclick="CloseModals" disabled="@isSaving">Hủy</button>
+                    <button class="btn btn-danger" @onclick="HandleDeleteUser" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Xác nhận xóa
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+<style>
+    .um-container {
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+
+    .page-title {
+        color: #512bd4;
+    }
+
+    .user-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #512bd4, #7c56e0);
+        color: white;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .role-badge-admin {
+        background-color: #dc3545;
+        color: white;
+    }
+
+    .role-badge-manager {
+        background-color: #ffc107;
+        color: #212529;
+    }
+
+    .role-badge-user {
+        background-color: #198754;
+        color: white;
+    }
+
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1040;
+    }
+
+    .modal-custom {
+        position: fixed;
+        inset: 0;
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .modal-custom-dialog {
+        background: white;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 580px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        animation: modalIn 0.2s ease-out;
+    }
+
+    @@keyframes modalIn {
+        from {
+            transform: scale(0.95);
+            opacity: 0;
+        }
+
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+
+    .modal-custom-header {
+        padding: 1rem 1.25rem;
+        background: #512bd4;
+        color: white;
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+        .modal-custom-header h5 {
+            margin: 0;
+        }
+
+    .btn-close-custom {
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        cursor: pointer;
+        color: white;
+        padding: 0 4px;
+    }
+
+    .modal-custom-body {
+        padding: 1.25rem;
+    }
+
+    .modal-custom-footer {
+        padding: 0.75rem 1.25rem;
+        border-top: 1px solid #e9ecef;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+</style>
+
+@code {
+    // ── Danh sách users ──────────────────────────────────────────
+    private List<AppUserDto> users = new();
+    private bool isLoading = true;
+    private bool isChecking = true;
+    private bool isAuthorized = false;
+    private bool isSaving = false;
+    private string message = "";
+    private bool isSuccess = false;
+
+    // ── Dữ liệu cho modal thêm tài khoản ─────────────────────────
+    private List<EmployeeDto> allEmployees = new();
+    private List<DepartmentDto> departments = new();
+    private bool isLoadingData = false;
+    private string selectedDepartment = "";
+    private int selectedEmployeeId = 0;
+
+    // Lọc nhân viên theo phòng ban đang chọn
+    private IEnumerable<EmployeeDto> EmployeesInDept =>
+        string.IsNullOrEmpty(selectedDepartment)
+            ? Enumerable.Empty<EmployeeDto>()
+            : allEmployees.Where(e => e.Department == selectedDepartment);
+
+    // ── Modals ────────────────────────────────────────────────────
+    private bool showAddModal = false;
+    private bool showChangeRoleModal = false;
+    private bool showResetPasswordModal = false;
+    private bool showDeleteModal = false;
+    private AppUserDto? selectedUser;
+
+    // ── Form data ─────────────────────────────────────────────────
+    private CreateUserDto addModel = new();
+    private Dictionary<string, string> formErrors = new();
+    private string newRole = "User";
+    private string newPassword = "";
+
+    // ─────────────────────────────────────────────────────────────
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthService.TryRestoreSessionAsync(); // ← Thêm dòng này
+            isAuthorized = await AuthService.HasRoleAsync("Admin");
+            isChecking = false;
+            if (!isAuthorized) { StateHasChanged(); return; }
+            await LoadUsersAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        isLoading = true;
+        users = await ApiService.GetUsersAsync();
+        isLoading = false;
+    }
+
+    // ── Xử lý chọn phòng ban → reset nhân viên ───────────────────
+    private void OnDepartmentChanged(ChangeEventArgs e)
+    {
+        selectedDepartment = e.Value?.ToString() ?? "";
+        selectedEmployeeId = 0;
+        addModel.FullName = "";
+        formErrors.Remove("Department");
+        formErrors.Remove("FullName");
+    }
+
+    // ── Xử lý chọn nhân viên → điền FullName ─────────────────────
+    private void OnEmployeeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var empId) && empId > 0)
+        {
+            selectedEmployeeId = empId;
+            var emp = allEmployees.FirstOrDefault(x => x.Id == empId);
+            addModel.FullName = emp?.FullName ?? "";
+            addModel.EmployeeId = empId;
+            formErrors.Remove("FullName");
+        }
+        else
+        {
+            selectedEmployeeId = 0;
+            addModel.FullName = "";
+            addModel.EmployeeId = null;
+        }
+    }
+
+    // ── Mở modal thêm tài khoản ───────────────────────────────────
+    private async Task OpenAddModal()
+    {
+        addModel = new CreateUserDto { Role = "User" };
+        formErrors.Clear();
+        selectedDepartment = "";
+        selectedEmployeeId = 0;
+
+        // Load dữ liệu nếu chưa có
+        if (!allEmployees.Any() || !departments.Any())
+        {
+            isLoadingData = true;
+            var empTask = ApiService.GetEmployeesAsync();
+            var deptTask = ApiService.GetDepartmentsAsync();
+            await Task.WhenAll(empTask, deptTask);
+            allEmployees = empTask.Result;
+            departments = deptTask.Result;
+            isLoadingData = false;
+        }
+
+        showAddModal = true;
+    }
+
+    private bool ValidateAddForm()
+    {
+        formErrors.Clear();
+        if (string.IsNullOrWhiteSpace(addModel.Username))
+            formErrors["Username"] = "Tên đăng nhập không được để trống.";
+        if (string.IsNullOrEmpty(selectedDepartment))
+            formErrors["Department"] = "Vui lòng chọn phòng ban.";
+        if (string.IsNullOrWhiteSpace(addModel.FullName))
+            formErrors["FullName"] = "Vui lòng chọn nhân viên.";
+        if (string.IsNullOrWhiteSpace(addModel.Password) || addModel.Password.Length < 2)
+            formErrors["Password"] = "Mật khẩu phải có ít nhất 2 ký tự.";
+        return formErrors.Count == 0;
+    }
+
+    private async Task HandleAddUser()
+    {
+        if (!ValidateAddForm()) return;
+        isSaving = true;
+        try
+        {
+            var (result, error) = await ApiService.CreateUserAsync(addModel);
+            if (result != null)
+            {
+                message = $"✅ Đã tạo tài khoản '{result.Username}' thành công.";
+                isSuccess = true;
+                showAddModal = false;
+                await LoadUsersAsync();
+            }
+            else
+            {
+                message = $"❌ {error}";
+                isSuccess = false;
+            }
+        }
+        finally { isSaving = false; }
+    }
+
+    // ── Đổi quyền ─────────────────────────────────────────────────
+    private void OpenChangeRoleModal(AppUserDto user)
+    {
+        selectedUser = user;
+        newRole = user.Role;
+        showChangeRoleModal = true;
+    }
+
+    private async Task HandleChangeRole()
+    {
+        if (selectedUser == null) return;
+        isSaving = true;
+        try
+        {
+            var (success, msg) = await ApiService.ChangeRoleAsync(selectedUser.Id, newRole);
+            message = success ? $"✅ {msg}" : $"❌ {msg}";
+            isSuccess = success;
+            if (success) { showChangeRoleModal = false; await LoadUsersAsync(); }
+        }
+        finally { isSaving = false; }
+    }
+
+    // ── Reset password ─────────────────────────────────────────────
+    private void OpenResetPasswordModal(AppUserDto user)
+    {
+        selectedUser = user;
+        newPassword = "";
+        formErrors.Clear();
+        showResetPasswordModal = true;
+    }
+
+    private async Task HandleResetPassword()
+    {
+        if (selectedUser == null) return;
+        formErrors.Clear();
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 2)
+        {
+            formErrors["NewPassword"] = "Mật khẩu mới phải có ít nhất 2 ký tự.";
+            return;
+        }
+        isSaving = true;
+        try
+        {
+            var (success, msg) = await ApiService.ResetPasswordAsync(selectedUser.Id, newPassword);
+            message = success ? $"✅ {msg}" : $"❌ {msg}";
+            isSuccess = success;
+            if (success) showResetPasswordModal = false;
+        }
+        finally { isSaving = false; }
+    }
+
+    // ── Toggle active ──────────────────────────────────────────────
+    private async Task ToggleActive(AppUserDto user)
+    {
+        isSaving = true;
+        try
+        {
+            var (success, msg) = await ApiService.ToggleUserActiveAsync(user.Id);
+            message = success ? $"✅ {msg}" : $"❌ {msg}";
+            isSuccess = success;
+            if (success) await LoadUsersAsync();
+        }
+        finally { isSaving = false; }
+    }
+
+    // ── Xóa ───────────────────────────────────────────────────────
+    private void OpenDeleteModal(AppUserDto user)
+    {
+        selectedUser = user;
+        showDeleteModal = true;
+    }
+
+    private async Task HandleDeleteUser()
+    {
+        if (selectedUser == null) return;
+        isSaving = true;
+        try
+        {
+            var (success, msg) = await ApiService.DeleteUserAsync(selectedUser.Id);
+            message = success ? $"✅ {msg}" : $"❌ {msg}";
+            isSuccess = success;
+            if (success) { showDeleteModal = false; await LoadUsersAsync(); }
+        }
+        finally { isSaving = false; }
+    }
+
+    private void CloseModals()
+    {
+        if (isSaving) return;
+        showAddModal = showChangeRoleModal = showResetPasswordModal = showDeleteModal = false;
+        selectedUser = null;
+        formErrors.Clear();
+    }
+
+    private string GetRoleLabel(string role) => role switch
+    {
+        "Admin" => "👑 Admin",
+        "Manager" => "🎯 Manager",
+        _ => "👤 User"
+    };
+}

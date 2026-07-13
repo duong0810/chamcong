@@ -1,0 +1,1014 @@
+﻿@page "/history"
+@rendermode InteractiveServer
+@inject ApiService ApiService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>@(activeTab == "login" ? "Lịch sử đăng nhập" : "Lịch sử chấm công") — Chấm Công</PageTitle>
+
+<div class="history-container">
+    <h2 class="page-title">📋 Lịch Sử</h2>
+
+    <!-- TABS -->
+    <div class="history-tabs">
+        <button class="history-tab @(activeTab == "attendance" ? "history-tab--active" : "")"
+                @onclick='() => SwitchTab("attendance")'>
+            🕐 Chấm công
+        </button>
+        @if (canViewLoginHistory)
+        {
+            <button class="history-tab @(activeTab == "login" ? "history-tab--active" : "")"
+                    @onclick='() => SwitchTab("login")'>
+                🔐 Đăng nhập
+            </button>
+        }
+    </div>
+
+    @if (activeTab == "attendance")
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">👤 Chọn nhân viên</label>
+                        <select class="form-select" @bind="selectedEmployeeId" @bind:after="LoadHistoryAsync">
+                            <option value="0">-- Chọn nhân viên --</option>
+                            @foreach (var emp in employees)
+                            {
+                                <option value="@emp.Id">@emp.FullName (@emp.EmployeeCode)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">📅 Số ngày</label>
+                        <select class="form-select" @bind="days" @bind:after="LoadHistoryAsync">
+                            <option value="7">7 ngày gần đây</option>
+                            <option value="15">15 ngày</option>
+                            <option value="30">30 ngày</option>
+                            <option value="60">60 ngày</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(editMessage))
+        {
+            <div class="alert alert-@(editSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
+                <strong>@(editSuccess ? "✅" : "❌")</strong> @editMessage
+                <button type="button" class="btn-close" @onclick="() => editMessage = string.Empty"></button>
+            </div>
+        }
+
+        @if (isLoadingAttendance)
+        {
+            <div class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Đang tải...</span>
+                </div>
+            </div>
+        }
+        else if (records.Any())
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Tìm thấy @records.Count bản ghi</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Ngày</th>
+                                    <th>Nhân Viên</th>
+                                    <th>Giờ vào</th>
+                                    <th>Giờ ra</th>
+                                    <th>Trạng thái</th>
+                                    <th>Ghi chú</th>
+                                    <th>Ảnh vào</th>
+                                    <th>Ảnh ra</th>
+                                    <th>Tổng giờ</th>
+                                    <th>GPS vào</th>
+                                    <th>GPS ra</th>
+                                    <th>Độ lệch vào</th>
+                                    <th>Độ lệch ra</th>
+                                    <th>Public IP vào</th>
+                                    <th>Public IP ra</th>
+                                    <th>Local IP vào</th>
+                                    <th>Local IP ra</th>
+                                    <th>Thiết bị vào</th>
+                                    <th>Thiết bị ra</th>
+                                    <th>Vị trí</th>
+                                    @if (canManualEdit)
+                                    {
+                                        <th class="text-center">Thao tác</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var record in records)
+                                {
+                                    <tr>
+                                        <td>@record.CheckInTime.ToString("dd/MM/yyyy")</td>
+                                        <td>@record.EmployeeName</td>
+                                        <td>@record.CheckInTime.ToString("HH:mm")</td>
+                                        <td>@(record.CheckOutTime?.ToString("HH:mm") ?? "-")</td>
+
+                                        <!-- Cột trạng thái: hiển thị badge nếu đã sửa thủ công -->
+                                        <td>
+                                            @if (record.IsManualEntry)
+                                            {
+                                                <span class="badge bg-warning text-dark" title="Đã được sửa thủ công">✏️ Đã sửa</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-success">✅ Gốc</span>
+                                            }
+                                        </td>
+
+                                        <td class="small">
+                                            @if (!string.IsNullOrWhiteSpace(record.Notes))
+                                            {
+                                                <span title="@record.Notes" class="text-truncate" style="display:inline-block; max-width:220px;">
+                                                    @record.Notes
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted small">-</span>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(record.CheckInFaceImageUrl))
+                                            {
+                                                <button class="img-thumb-btn" @onclick="() => OpenImageModal(record.CheckInFaceImageUrl!)">
+                                                    <img src="@record.CheckInFaceImageUrl" alt="checkin" class="thumb" />
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted small">-</span>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(record.CheckOutFaceImageUrl))
+                                            {
+                                                <button class="img-thumb-btn" @onclick="() => OpenImageModal(record.CheckOutFaceImageUrl!)">
+                                                    <img src="@record.CheckOutFaceImageUrl" alt="checkout" class="thumb" />
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted small">-</span>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            @if (record.CheckOutTime.HasValue)
+                                            {
+                                                var duration = record.CheckOutTime.Value - record.CheckInTime;
+                                                <text>@duration.Hours giờ @duration.Minutes phút</text>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            @if (record.Latitude.HasValue && record.Longitude.HasValue)
+                                            {
+                                                <a href="https://www.google.com/maps?q=@record.Latitude,@record.Longitude"
+                                                   target="_blank" class="badge bg-success text-decoration-none">
+                                                    ✅ @record.Latitude.Value.ToString("F6"), @record.Longitude.Value.ToString("F6")
+                                                </a>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">❌ Không có GPS</span>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            @if (record.CheckOutLatitude.HasValue && record.CheckOutLongitude.HasValue)
+                                            {
+                                                <a href="https://www.google.com/maps?q=@record.CheckOutLatitude,@record.CheckOutLongitude"
+                                                   target="_blank" class="badge bg-danger text-decoration-none">
+                                                    ✅ @record.CheckOutLatitude.Value.ToString("F6"), @record.CheckOutLongitude.Value.ToString("F6")
+                                                </a>
+                                            }
+                                            else if (record.CheckOutTime.HasValue)
+                                            {
+                                                <span class="badge bg-warning">⚠️ Chưa có GPS</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">-</span>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            @if (record.CheckInDistanceMeters.HasValue)
+                                            {
+                                                <span class="badge bg-info">@record.CheckInDistanceMeters.Value.ToString("F1") m</span>
+                                            }
+                                            else
+                                            {
+
+                                                <span class="text-muted small">-</span>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            @if (record.CheckOutDistanceMeters.HasValue)
+                                            {
+                                                <span class="badge bg-info">@record.CheckOutDistanceMeters.Value.ToString("F1") m</span>
+                                            }
+                                            else if (record.CheckOutTime.HasValue)
+                                            {
+                                                <span class="badge bg-warning">⚠️ Chưa có GPS</span>
+                                            }
+                                            else
+                                            {
+
+                                                <span class="text-muted small">-</span>
+                                            }
+                                        </td>
+
+                                        <td class="small ip-cell">
+                                            <span class="truncate" title="@(record.CheckInIp ?? "-")">@(record.CheckInIp ?? "-")</span>
+                                        </td>
+                                        <td class="small ip-cell">
+                                            <span class="truncate" title="@(record.CheckOutIp ?? "-")">@(record.CheckOutIp ?? "-")</span>
+                                        </td>
+                                        <td class="small localip-cell">
+                                            <span class="truncate" title="@(record.CheckInLocalIp ?? "-")">@(record.CheckInLocalIp ?? "-")</span>
+                                        </td>
+                                        <td class="small localip-cell">
+                                            <span class="truncate" title="@(record.CheckOutLocalIp ?? "-")">@(record.CheckOutLocalIp ?? "-")</span>
+                                        </td>
+                                        <td class="small device-cell">
+                                            <span class="truncate" title="@(record.CheckInDeviceInfo ?? "-")">@(record.CheckInDeviceInfo ?? "-")</span>
+                                        </td>
+                                        <td class="small device-cell">
+                                            <span class="truncate" title="@(record.CheckOutDeviceInfo ?? "-")">@(record.CheckOutDeviceInfo ?? "-")</span>
+                                        </td>
+                                        <td>@(record.Location ?? "-")</td>
+
+                                        @if (canManualEdit)
+                                        {
+                                            <td class="text-center">
+                                                <div class="d-flex gap-1 justify-content-center">
+                                                    <button class="btn btn-sm btn-outline-warning" title="Sửa giờ chấm công"
+                                                            @onclick="() => OpenEditModal(record)">
+                                                        ✏️
+                                                    </button>
+                                                    @if (record.IsManualEntry)
+                                                    {
+                                                        <button class="btn btn-sm btn-outline-info" title="Xem lịch sử sửa"
+                                                                @onclick="() => OpenLogModal(record)">
+                                                            🕐
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (selectedEmployeeId > 0)
+        {
+            <div class="alert alert-info">
+                Không có dữ liệu chấm công trong @days ngày gần đây.
+            </div>
+        }
+    }
+    else if (activeTab == "login")
+    {
+        <!-- ===== TAB LỊCH SỬ ĐĂNG NHẬP ===== -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row align-items-end">
+                    <div class="col-md-4 mb-3 mb-md-0">
+                        <label class="form-label">📅 Số ngày</label>
+                        <select class="form-select" @bind="loginDays" @bind:after="LoadLoginHistoryAsync">
+                            <option value="7">7 ngày gần đây</option>
+                            <option value="15">15 ngày</option>
+                            <option value="30">30 ngày</option>
+                            <option value="60">60 ngày</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3 mb-md-0">
+                        <label class="form-label">🔍 Lọc theo username</label>
+                        <input class="form-control" placeholder="Tìm username..."
+                               @bind="loginSearch" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">🎭 Lọc theo quyền</label>
+                        <select class="form-select" @bind="loginRoleFilter">
+                            <option value="">Tất cả</option>
+                            <option value="Admin">👑 Admin</option>
+                            <option value="Manager">🎯 Manager</option>
+                            <option value="User">👤 User</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (isLoadingLogin)
+        {
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status"></div>
+            </div>
+        }
+        else if (!FilteredLoginLogs.Any())
+        {
+            <div class="alert alert-info text-center">Không có bản ghi đăng nhập nào.</div>
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">🔐 @FilteredLoginLogs.Count() bản ghi đăng nhập</h5>
+                    <small class="text-muted">@loginDays ngày gần đây</small>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Tài khoản</th>
+                                    <th>Họ tên</th>
+                                    <th>Quyền</th>
+                                    <th>Thời gian đăng nhập</th>
+                                    <th>Thời gian đăng xuất</th>
+                                    <th>Thời lượng</th>
+                                    <th>IP</th>
+                                    <th>Trình duyệt</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    int stt = 1;
+                                }
+                                @foreach (var log in FilteredLoginLogs)
+                                {
+                                    <tr>
+                                        <td><small class="text-muted">@stt</small></td>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <div class="log-avatar">@log.Username.Substring(0, 1).ToUpper()</div>
+                                                <strong>@log.Username</strong>
+                                            </div>
+                                        </td>
+                                        <td>@log.FullName</td>
+                                        <td>
+                                            <span class="badge role-badge-@log.Role.ToLower()">@GetRoleLabel(log.Role)</span>
+                                        </td>
+                                        <td><small>@log.LoginAt.ToString("dd/MM/yyyy HH:mm:ss")</small></td>
+                                        <td>
+                                            @if (log.LogoutAt.HasValue)
+                                            {
+                                                <small>@log.LogoutAt.Value.ToString("dd/MM/yyyy HH:mm:ss")</small>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-success">🟢 Online</span>
+                                            }
+                                        </td>
+                                        <td><small class="text-muted">@log.Duration</small></td>
+                                        <td><small class="text-muted font-monospace">@log.IpAddress</small></td>
+                                        <td>
+                                            <small class="text-muted" title="@log.UserAgent">@TruncateUserAgent(log.UserAgent)</small>
+                                        </td>
+                                    </tr>
+                                    stt++;
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<!-- ===== MODAL SỬA GIỜ CHẤM CÔNG ===== -->
+@if (showEditModal && editingRecord != null)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseEditModal"></div>
+    <div class="modal-custom">
+        <div class="modal-custom-dialog">
+            <div class="modal-custom-header">
+                <h5>✏️ Sửa giờ chấm công — @editingRecord.EmployeeName</h5>
+                <button class="btn-close-custom" @onclick="CloseEditModal">✕</button>
+            </div>
+            <div class="modal-custom-body">
+                <div class="alert alert-warning py-2 small">
+                    ⚠️ Ngày: <strong>@editingRecord.CheckInTime.ToString("dd/MM/yyyy")</strong>
+                    &nbsp;|&nbsp; Giờ gốc: <strong>@editingRecord.CheckInTime.ToString("HH:mm")</strong> → <strong>@(editingRecord.CheckOutTime?.ToString("HH:mm") ?? "Chưa có")</strong>
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">⏰ Giờ vào mới <span class="text-danger">*</span></label>
+                        <input type="datetime-local" class="form-control"
+                               @bind="editNewCheckIn" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">⏰ Giờ ra mới</label>
+                        <input type="datetime-local" class="form-control"
+                               @bind="editNewCheckOut" />
+                        <small class="text-muted">Để trống nếu nhân viên chưa checkout</small>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">📝 Lý do sửa <span class="text-danger">*</span></label>
+                        <textarea class="form-control" rows="3" placeholder="Nhập lý do sửa giờ chấm công..."
+                                  @bind="editReason"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-custom-footer">
+                <button class="btn btn-secondary" @onclick="CloseEditModal" disabled="@isSaving">Hủy</button>
+                <button class="btn btn-warning" @onclick="SaveManualEdit" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    💾 Lưu thay đổi
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ===== MODAL XEM LỊCH SỬ SỬA ===== -->
+@if (showLogModal && editingRecord != null)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseLogModal"></div>
+    <div class="modal-custom">
+        <div class="modal-custom-dialog" style="max-width:700px;">
+            <div class="modal-custom-header" style="background:#0d6efd;">
+                <h5>🕐 Lịch sử sửa — @editingRecord.EmployeeName (@editingRecord.CheckInTime.ToString("dd/MM/yyyy"))</h5>
+                <button class="btn-close-custom" @onclick="CloseLogModal">✕</button>
+            </div>
+            <div class="modal-custom-body p-0">
+                @if (isLoadingLogs)
+                {
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+                }
+                else if (!editLogs.Any())
+                {
+                    <div class="alert alert-info m-3">Chưa có lịch sử sửa.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Lần</th>
+                                    <th>Người sửa</th>
+                                    <th>Thời điểm sửa</th>
+                                    <th>Giờ vào cũ → mới</th>
+                                    <th>Giờ ra cũ → mới</th>
+                                    <th>Lý do</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var log in editLogs)
+                                {
+                                    <tr>
+                                        <td><span class="badge bg-secondary">Lần @log.EditCount</span></td>
+                                        <td><strong>@log.EditedByUsername</strong></td>
+                                        <td><small>@log.EditedAt.ToString("dd/MM/yyyy HH:mm:ss")</small></td>
+                                        <td>
+                                            <small class="text-muted">@log.OldCheckInTime.ToString("HH:mm")</small>
+                                            <span class="mx-1">→</span>
+                                            <strong class="text-success">@log.NewCheckInTime.ToString("HH:mm")</strong>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">@(log.OldCheckOutTime?.ToString("HH:mm") ?? "-")</small>
+                                            <span class="mx-1">→</span>
+                                            <strong class="text-success">@(log.NewCheckOutTime?.ToString("HH:mm") ?? "-")</strong>
+                                        </td>
+                                        <td><small>@(log.Reason ?? "-")</small></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+            <div class="modal-custom-footer">
+                <button class="btn btn-secondary" @onclick="CloseLogModal">Đóng</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal hiển thị ảnh chấm công -->
+@if (isImageModalOpen && !string.IsNullOrEmpty(modalImageUrl))
+{
+    <div class="image-modal" @onclick="CloseImageModal" role="dialog" aria-modal="true">
+        <div class="image-modal-content" @onclick:stopPropagation>
+            <button class="modal-close" aria-label="Đóng" @onclick="CloseImageModal">✕</button>
+            <img src="@modalImageUrl" alt="Ảnh chấm công" class="modal-image" />
+        </div>
+    </div>
+}
+
+<style>
+    .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .history-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .page-title {
+        text-align: center;
+        color: #512bd4;
+        margin-bottom: 2rem;
+    }
+
+    .history-tabs {
+        display: flex;
+        border-bottom: 2px solid #dee2e6;
+        margin-bottom: 1rem;
+        gap: 0;
+    }
+
+    .history-tab {
+        padding: 0.6rem 1.25rem;
+        border: none;
+        border-bottom: 3px solid transparent;
+        background: transparent;
+        color: #6c757d;
+        cursor: pointer;
+        font-size: 0.95rem;
+        font-weight: 400;
+        border-radius: 0;
+        margin-bottom: -2px;
+        transition: color 0.15s, background-color 0.15s;
+        height: auto;
+        line-height: 1.5;
+        display: inline-flex;
+        align-items: center;
+    }
+
+        .history-tab:hover {
+            color: #512bd4;
+            background-color: #f8f9fa;
+        }
+
+    .history-tab--active {
+        color: #512bd4;
+        font-weight: 600;
+        border-bottom: 3px solid #512bd4;
+        background: transparent;
+    }
+
+    .card {
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-radius: 10px;
+    }
+
+    .table {
+        margin-bottom: 0;
+    }
+
+    .badge {
+        font-size: 0.85rem;
+        padding: 0.5em 0.75em;
+    }
+
+    .img-thumb-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+        display: inline-block;
+    }
+
+    .thumb {
+        width: 64px;
+        height: 48px;
+        object-fit: cover;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        display: block;
+        image-orientation: from-image;
+    }
+
+    .image-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.75);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1050;
+        padding: 1rem;
+        box-sizing: border-box;
+    }
+
+    .image-modal-content {
+        position: relative;
+        width: min(900px, 95vw);
+        aspect-ratio: 3/4;
+        max-height: 90vh;
+        background: #000;
+        padding: 0.5rem;
+        border-radius: 8px;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+    }
+
+    .modal-image {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: center;
+        display: block;
+        background-color: #000;
+        image-orientation: from-image;
+    }
+
+    .modal-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: rgba(255,255,255,0.9);
+        border: none;
+        border-radius: 4px;
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+        cursor: pointer;
+    }
+
+    .ip-cell, .device-cell {
+        vertical-align: middle;
+        padding: 0.35rem 0.75rem;
+    }
+
+        .ip-cell .truncate {
+            display: block;
+            max-width: 140px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .device-cell .truncate {
+            display: block;
+            max-width: 220px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+    .log-avatar {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #512bd4, #7c56e0);
+        color: white;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        flex-shrink: 0;
+    }
+
+    .role-badge-admin {
+        background-color: #dc3545;
+        color: white;
+    }
+
+    .role-badge-manager {
+        background-color: #ffc107;
+        color: #212529;
+    }
+
+    .role-badge-user {
+        background-color: #198754;
+        color: white;
+    }
+
+    .font-monospace {
+        font-family: monospace;
+    }
+
+    /* Modal sửa giờ */
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1040;
+    }
+
+    .modal-custom {
+        position: fixed;
+        inset: 0;
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .modal-custom-dialog {
+        background: white;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 620px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        animation: modalIn 0.2s ease-out;
+    }
+
+    @@keyframes modalIn {
+        from {
+            transform: scale(0.95);
+            opacity: 0;
+        }
+
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+
+    .modal-custom-header {
+        padding: 1rem 1.25rem;
+        background: #e6a817;
+        color: white;
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+        .modal-custom-header h5 {
+            margin: 0;
+        }
+
+    .btn-close-custom {
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        cursor: pointer;
+        color: white;
+        line-height: 1;
+        padding: 0 4px;
+    }
+
+    .modal-custom-body {
+        padding: 1.25rem;
+    }
+
+    .modal-custom-footer {
+        padding: 0.75rem 1.25rem;
+        border-top: 1px solid #e9ecef;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+
+    @@media (max-width: 576px) {
+        .thumb {
+            width: 48px;
+            height: 36px;
+        }
+
+        .ip-cell .truncate {
+            max-width: 90px;
+        }
+
+        .device-cell .truncate {
+            max-width: 120px;
+        }
+    }
+</style>
+
+@code {
+    // ===== CHUNG =====
+    private string activeTab = "attendance";
+    private bool canViewLoginHistory = false;
+    private bool canManualEdit = false;
+
+    // ===== TAB CHẤM CÔNG =====
+    private List<EmployeeDto> employees = new();
+    private List<AttendanceHistoryDto> records = new();
+    private int selectedEmployeeId = 0;
+    private int days = 30;
+    private bool isLoadingAttendance = false;
+
+    // Alert sửa giờ
+    private string editMessage = "";
+    private bool editSuccess = false;
+
+    // Modal ảnh
+    private bool isImageModalOpen = false;
+    private string? modalImageUrl;
+
+    // ===== MODAL SỬA GIỜ =====
+    private bool showEditModal = false;
+    private bool isSaving = false;
+    private AttendanceHistoryDto? editingRecord;
+    private DateTime editNewCheckIn;
+    private DateTime? editNewCheckOut;
+    private string editReason = "";
+
+    // ===== MODAL LOG SỬA =====
+    private bool showLogModal = false;
+    private bool isLoadingLogs = false;
+    private List<AttendanceEditLogDto> editLogs = new();
+
+    // ===== TAB ĐĂNG NHẬP =====
+    private List<LoginLogDto> loginLogs = new();
+    private int loginDays = 30;
+    private string loginSearch = "";
+    private string loginRoleFilter = "";
+    private bool isLoadingLogin = false;
+
+    private IEnumerable<LoginLogDto> FilteredLoginLogs => loginLogs
+        .Where(l =>
+            (string.IsNullOrEmpty(loginSearch) ||
+             l.Username.Contains(loginSearch, StringComparison.OrdinalIgnoreCase) ||
+             l.FullName.Contains(loginSearch, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrEmpty(loginRoleFilter) || l.Role == loginRoleFilter));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var tabParam = query["tab"];
+        if (!string.IsNullOrEmpty(tabParam))
+            activeTab = tabParam;
+
+        employees = await ApiService.GetEmployeesAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthService.TryRestoreSessionAsync();
+            canViewLoginHistory = await AuthService.HasPermissionAsync("Users.Manage");
+
+            // Chỉ Admin và Manager mới được sửa giờ chấm công
+            var isUserRole = await AuthService.HasRoleAsync("User");
+            canManualEdit = !isUserRole;
+
+            if (activeTab == "login" && !canViewLoginHistory)
+                activeTab = "attendance";
+
+            if (activeTab == "login" && canViewLoginHistory && !loginLogs.Any())
+                await LoadLoginHistoryAsync();
+
+            StateHasChanged();
+        }
+    }
+
+    private async Task SwitchTab(string tab)
+    {
+        activeTab = tab;
+        Navigation.NavigateTo($"/history?tab={tab}", forceLoad: false);
+        if (tab == "login" && !loginLogs.Any())
+            await LoadLoginHistoryAsync();
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        if (selectedEmployeeId == 0) return;
+        isLoadingAttendance = true;
+        try { records = await ApiService.GetHistoryAsync(selectedEmployeeId, days); }
+        finally { isLoadingAttendance = false; }
+    }
+
+    private async Task LoadLoginHistoryAsync()
+    {
+        isLoadingLogin = true;
+        loginLogs = await ApiService.GetLoginHistoryAsync(loginDays);
+        isLoadingLogin = false;
+    }
+
+    // ===== SỬA GIỜ CHẤM CÔNG =====
+    private void OpenEditModal(AttendanceHistoryDto record)
+    {
+        editingRecord = record;
+        editNewCheckIn = record.CheckInTime;
+        editNewCheckOut = record.CheckOutTime;
+        editReason = "";
+        showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        if (!isSaving) showEditModal = false;
+    }
+
+    private async Task SaveManualEdit()
+    {
+        if (editingRecord == null) return;
+
+        if (string.IsNullOrWhiteSpace(editReason))
+        {
+            editMessage = "Vui lòng nhập lý do sửa!";
+            editSuccess = false;
+            return;
+        }
+
+        if (editNewCheckOut.HasValue && editNewCheckOut.Value <= editNewCheckIn)
+        {
+            editMessage = "Giờ ra phải sau giờ vào!";
+            editSuccess = false;
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            var userDto = await AuthService.GetCurrentUserAsync();
+            var dto = new ManualEditDto
+            {
+                NewCheckInTime = editNewCheckIn,
+                NewCheckOutTime = editNewCheckOut,
+                Reason = editReason,
+                EditedByUserId = userDto?.Id ?? 0,
+                EditedByUsername = userDto?.Username ?? "unknown"
+            };
+
+            var (success, message) = await ApiService.ManualEditAttendanceAsync(editingRecord.Id, dto);
+            editMessage = message;
+            editSuccess = success;
+
+            if (success)
+            {
+                showEditModal = false;
+                await LoadHistoryAsync(); // Reload bảng
+            }
+        }
+        finally { isSaving = false; }
+    }
+
+    // ===== XEM LOG SỬA =====
+    private async Task OpenLogModal(AttendanceHistoryDto record)
+    {
+        editingRecord = record;
+        showLogModal = true;
+        isLoadingLogs = true;
+        editLogs = new();
+        StateHasChanged();
+
+        editLogs = await ApiService.GetAttendanceEditLogsAsync(record.Id);
+        isLoadingLogs = false;
+    }
+
+    private void CloseLogModal() => showLogModal = false;
+
+    // ===== ẢNH =====
+    private void OpenImageModal(string url) { modalImageUrl = url; isImageModalOpen = true; }
+    private void CloseImageModal() { isImageModalOpen = false; modalImageUrl = null; }
+
+    private string GetRoleLabel(string role) => role switch
+    {
+        "Admin" => "👑 Admin",
+        "Manager" => "🎯 Manager",
+        _ => "👤 User"
+    };
+
+    private string TruncateUserAgent(string ua)
+    {
+        if (string.IsNullOrEmpty(ua)) return "-";
+        if (ua.Contains("Chrome")) return "Chrome";
+        if (ua.Contains("Firefox")) return "Firefox";
+        if (ua.Contains("Safari")) return "Safari";
+        if (ua.Contains("Edge")) return "Edge";
+        return ua.Length > 30 ? ua[..30] + "..." : ua;
+    }
+}

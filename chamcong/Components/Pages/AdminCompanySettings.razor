@@ -1,0 +1,246 @@
+﻿@page "/admin/company-settings"
+@rendermode InteractiveServer
+@inject ApiService ApiService
+@inject NavigationManager Navigation
+@inject ILogger<AdminCompanySettings> Logger
+
+<PageTitle>Cài đặt vị trí và khoảng cách</PageTitle>
+
+<div class="card">
+    <div class="card-header"><h5>Vị trí công ty & Độ lệch cho phép</h5></div>
+    <div class="card-body">
+        @if (isLoading)
+        {
+            <div class="spinner-border"></div>
+        }
+        else
+        {
+            <div class="mb-3">
+                <label class="form-label">Google Maps URL (Link địa chỉ công ty)</label>
+                <input class="form-control" value="@model.CompanyLocationUrl" @oninput="OnCompanyLocationUrlInput" />
+                <div class="form-text">Bạn có thể dán link Google Maps; hệ thống sẽ cố gắng lấy vĩ/kinh độ tự động.</div>
+            </div>
+            <div class="mb-3 row">
+                <div class="col">
+                    <label class="form-label">Vĩ độ</label>
+                    <input class="form-control" @bind="model.CompanyLat" type="number" step="any" />
+                </div>
+                <div class="col">
+                    <label class="form-label">Kinh độ</label>
+                    <input class="form-control" @bind="model.CompanyLng" type="number" step="any" />
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Độ lệch chấp nhận (mét)</label>
+                <input class="form-control" @bind="model.LocationAcceptThresholdMeters" type="number" step="any" />
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary" @onclick="SaveAsync" disabled="@isSaving">Lưu</button>
+                <button type="button" class="btn btn-secondary" @onclick="Cancel">Huỷ</button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(statusMessage))
+            {
+                <div class="alert mt-3 alert-@(isSuccess ? "success" : "danger")">@statusMessage</div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private CompanySettingsDto model = new();
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string statusMessage = "";
+    private bool isSuccess = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var s = await ApiService.GetCompanySettingsAsync();
+            if (s != null) model = s;
+            else statusMessage = "Không lấy được cấu hình từ server (null). Kiểm tra API /api/settings/company.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    private async Task SaveAsync()
+    {
+        isSaving = true;
+        statusMessage = "";
+        isSuccess = false;
+
+        try
+        {
+            // parse lat/lng if needed (existing code kept)
+            if ((!model.CompanyLat.HasValue || !model.CompanyLng.HasValue) && !string.IsNullOrWhiteSpace(model.CompanyLocationUrl))
+            {
+                if (TryParseGoogleMapsUrl(model.CompanyLocationUrl, out var lat, out var lng))
+                {
+                    model.CompanyLat = lat;
+                    model.CompanyLng = lng;
+                }
+                else
+                {
+                    statusMessage = "Không lấy được toạ độ từ URL. Vui lòng nhập thủ công Latitude/Longitude hoặc cung cấp URL chuẩn.";
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            if (!model.CompanyLat.HasValue || !model.CompanyLng.HasValue)
+            {
+                statusMessage = "Vui lòng cung cấp Latitude và Longitude (hoặc hợp lệ URL Google Maps).";
+                StateHasChanged();
+                return;
+            }
+
+            if (model.LocationAcceptThresholdMeters.HasValue == false || model.LocationAcceptThresholdMeters <= 0)
+            {
+                statusMessage = "LocationAcceptThresholdMeters phải lớn hơn 0.";
+                StateHasChanged();
+                return;
+            }
+
+            var resp = await ApiService.UpdateCompanySettingsAsync(model);
+
+            if (resp.IsSuccessStatusCode)
+            {
+                try
+                {
+                    // try read returned DTO and update UI model
+                    var returned = await resp.Content.ReadFromJsonAsync<CompanySettingsDto>();
+                    if (returned != null)
+                    {
+                        model = returned;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to read returned DTO from UpdateCompanySettingsAsync");
+                }
+
+                isSuccess = true;
+                statusMessage = "Saved.";
+                StateHasChanged();
+            }
+            else
+            {
+                var body = await resp.Content.ReadAsStringAsync();
+                statusMessage = $"Save failed: {(int)resp.StatusCode} {resp.ReasonPhrase}. {body}";
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            isSuccess = false;
+            statusMessage = "Lỗi khi lưu cấu hình.";
+            Logger.LogError(ex, "SaveAsync error");
+            StateHasChanged();
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    // handle input on the URL field: update model and try parse immediately
+    private async Task OnCompanyLocationUrlInput(ChangeEventArgs e)
+    {
+        var url = e.Value?.ToString() ?? "";
+        model.CompanyLocationUrl = url;
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(url) && TryParseGoogleMapsUrl(url, out var lat, out var lng))
+            {
+                model.CompanyLat = lat;
+                model.CompanyLng = lng;
+                statusMessage = "";
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    model.CompanyLat = null;
+                    model.CompanyLng = null;
+                }
+                // nếu URL không parse được thì giữ nguyên lat/lng hiện tại (để người dùng sửa tay)
+            }
+        }
+        catch { }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // Copied lightweight parser — tries several common Google Maps URL patterns
+    private static bool TryParseGoogleMapsUrl(string url, out double lat, out double lng)
+    {
+        lat = 0; lng = 0;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(url)) return false;
+
+            var rx3d4d = new System.Text.RegularExpressions.Regex(@"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)");
+            var m34 = rx3d4d.Match(url);
+            if (m34.Success &&
+                double.TryParse(m34.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                double.TryParse(m34.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                return true;
+
+            var atIndex = url.IndexOf("/@");
+            if (atIndex >= 0)
+            {
+                var seg = url.Substring(atIndex + 2);
+                var parts = seg.Split(',');
+                if (parts.Length >= 2 &&
+                    double.TryParse(parts[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                    double.TryParse(parts[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                {
+                    return true;
+                }
+            }
+
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                var q = query.Get("q");
+                if (!string.IsNullOrEmpty(q))
+                {
+                    var coords = q.Split(',');
+                    if (coords.Length >= 2 &&
+                        double.TryParse(coords[0], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                        double.TryParse(coords[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            var rx = new System.Text.RegularExpressions.Regex(@"(-?\d+\.\d+),\s*(-?\d+\.\d+)");
+            var matches = rx.Matches(url);
+            if (matches.Count > 0)
+            {
+                var m = matches[matches.Count - 1];
+                if (double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
+                    double.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out lng))
+                {
+                    return true;
+                }
+            }
+        }
+        catch { }
+        return false;
+    }
+}

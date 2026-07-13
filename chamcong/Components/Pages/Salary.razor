@@ -1,0 +1,826 @@
+﻿@page "/reports"
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+@inject ApiService ApiService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Bảng Lương</PageTitle>
+
+<div class="reports-container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="page-title mb-0">💰 Bảng Lương</h2>
+    </div>
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert alert-@(isSuccess ? "success" : "danger") alert-dismissible fade show">
+            <strong>@(isSuccess ? "✅" : "❌")</strong> @message
+            <button type="button" class="btn-close" @onclick="() => message = string.Empty"></button>
+        </div>
+    }
+
+    <!-- ===== BỘ LỌC THÁNG / NĂM ===== -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label mb-1">Tháng</label>
+                    <select class="form-select form-select-sm" @bind="selectedMonth">
+                        @for (int m = 1; m <= 12; m++)
+                        {
+                            <option value="@m">Tháng @m</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label mb-1">Năm</label>
+                    <select class="form-select form-select-sm" @bind="selectedYear">
+                        @for (int y = DateTime.Now.Year; y >= DateTime.Now.Year - 3; y--)
+                        {
+                            <option value="@y">@y</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-primary btn-sm" @onclick="LoadDataAsync" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        🔍 Xem
+                    </button>
+                </div>
+                <!-- ← THÊM MỚI: ô tìm kiếm -->
+                <div class="col">
+                    <label class="form-label mb-1">🔍 Tìm kiếm</label>
+                    <input class="form-control form-control-sm"
+                           placeholder="Tìm theo mã NV, tên, công việc, phòng ban..."
+                           @bind="searchText"
+                           @bind:event="oninput" />
+                </div>
+                @if (!string.IsNullOrWhiteSpace(searchText))
+                {
+                    <div class="col-auto d-flex align-items-end">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => searchText = string.Empty">
+                            ✕ Xóa
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TABS ===== -->
+    <div class="report-tabs mb-3">
+        <button class="report-tab @(activeTab == "attendance" ? "report-tab--active" : "")"
+                @onclick='() => activeTab = "attendance"'>
+            📅 Bảng Chấm Công Tháng
+        </button>
+        <button class="report-tab @(activeTab == "salary" ? "report-tab--active" : "")"
+                @onclick='() => activeTab = "salary"'>
+            💰 Bảng Lương
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary"></div>
+            <p class="mt-2 text-muted">Đang tải...</p>
+        </div>
+    }
+    else if (activeTab == "attendance")
+    {
+        <!-- ===== TAB BẢNG CHẤM CÔNG THÁNG ===== -->
+        @if (!attendanceRows.Any())
+        {
+            <div class="alert alert-info text-center">Không có dữ liệu chấm công tháng @selectedMonth/@selectedYear.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm align-middle salary-table">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="col-fixed">Mã NV</th>
+                            <th class="col-fixed">Tên NV</th>
+                            <th class="col-fixed">Công việc</th>
+                            @for (int d = 1; d <= daysInMonth; d++)
+                            {
+                                <th class="col-day">@d</th>
+                            }
+                            <th class="col-fixed">Tổng</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in FilteredAttendanceRows)
+                        {
+                            <tr>
+                                <td><span class="badge bg-secondary">@row.EmployeeCode</span></td>
+                                <td><strong>@row.FullName</strong></td>
+                                <td><small>@(row.Position ?? "-")</small></td>
+                                @for (int d = 1; d <= daysInMonth; d++)
+                                {
+                                    var status = row.DailyStatus.GetValueOrDefault(d, "");
+                                    <td class="text-center day-cell @(status == "✓" ? "day-present" : status == "V" ? "day-half" : "")">
+                                        <small>@status</small>
+                                    </td>
+                                }
+                                <td class="text-center fw-bold text-success">@row.TotalWorkDays</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <small class="text-muted">Tổng: @FilteredAttendanceRows.Count() / @attendanceRows.Count nhân viên | Tháng @selectedMonth/@selectedYear</small>
+        }
+    }
+    else
+    {
+        <!-- ===== TAB BẢNG LƯƠNG ===== -->
+        @if (!salaryRows.Any())
+        {
+            <div class="alert alert-info text-center">Không có dữ liệu bảng lương tháng @selectedMonth/@selectedYear.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm align-middle salary-table">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="col-fixed">Mã NV</th>
+                            <th class="col-fixed">Tên NV</th>
+                            <th class="col-fixed">Phòng ban</th>
+                            @* @for (int d = 1; d <= daysInMonth; d++)
+                            {
+                                <th class="col-day">@d</th>
+                            } *@
+                            <th class="col-num">Loại ĐT</th>
+                            <th class="col-num">Loại LĐ</th>
+                            <th class="col-num">Lương CB</th>
+                            <th class="col-num">SL ngày phải đi</th>
+                            <th class="col-num">Tổng ngày đi làm</th>
+                            <th class="col-num">Tiền công ngày</th>
+                            <th class="col-num">Ngày nghỉ</th>
+                            <th class="col-num">Tạm ứng</th>
+                            <th class="col-num">Lương theo ngày</th>
+                            <th class="col-num">Đền thiệt hại</th>
+                            <th class="col-num">Đồng phục</th>
+                            <th class="col-num">Giá cơm</th>
+                            <th class="col-num">Tiền cơm</th>
+                            <th class="col-num">Vi phạm</th>
+                            <th class="col-num text-center">BH</th>
+                            <th class="col-num">BH YT 1.5%</th>
+                            <th class="col-num">BH TN 1%</th>
+                            <th class="col-num">BHXH 17.5%</th>
+                            <th class="col-num">LT thêm (ngày)</th>
+                            <th class="col-num">Tiền LT thêm</th>
+                            <th class="col-num">Lương TN</th>
+                            @* <th class="col-num">Chuyên cần</th> *@
+                            <th class="col-num">Thưởng CC</th>
+                            <th class="col-num">Lương tháng trước</th>
+                            <th class="col-num">Thưởng DT</th>
+                            <th class="col-num">Mô tả CV</th>
+                            <th class="col-num fw-bold text-warning">Tổng còn lại</th>
+                            <th class="col-num fw-bold text-success">THỰC LÃNH</th>
+                            <th class="col-num">Kí nhận</th>
+                            <th class="col-num">Ghi chú</th>
+                            <th class="col-num text-center">Thao tác</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in FilteredSalaryRows)
+                        {
+                            <tr class="@(editingEmployeeId == row.EmployeeId ? "table-warning" : "")">
+                                <td><span class="badge bg-secondary">@row.EmployeeCode</span></td>
+                                <td><strong>@row.FullName</strong></td>
+                                <td><small>@(row.Department ?? "-")</small></td>
+
+                                @* Các ngày chấm công *@
+                                @* @for (int d = 1; d <= daysInMonth; d++)
+                                {
+                                    var status = row.DailyAttendance.GetValueOrDefault(d, "");
+                                    <td class="text-center day-cell @(status == "✓" ? "day-present" : status == "V" ? "day-half" : "")">
+                                        <small>@status</small>
+                                    </td>
+                                } *@
+
+                                @* Các cột thông tin lương *@
+                                <td><small>@(row.TrainingType ?? "-")</small></td>
+                                <td><small>@(row.LaborType ?? "-")</small></td>
+                                <td class="text-end"><small>@row.BasicSalary.ToString("N0")</small></td>
+                                <td class="text-center"><small>@row.RequiredWorkDays</small></td>
+                                <td class="text-center fw-bold text-success"><small>@row.TotalWorkDays</small></td>
+                                <td class="text-end"><small>@row.DailyWage.ToString("N0")</small></td>
+                                <td class="text-center text-danger"><small>@row.AbsentDays</small></td>
+                                <td class="text-end"><small>@row.Advance.ToString("N0")</small></td>
+                                <td class="text-end fw-bold"><small>@row.SalaryByWorkDays.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.Damage.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.UniformFee.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.LunchPrice.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.TotalLunchMoney.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.Violation.ToString("N0")</small></td>
+                                <td class="text-center">
+                                    @if (row.HasInsurance)
+                                    {
+                                        <span class="badge bg-success">✅</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">—</span>
+                                    }
+                                </td>
+                                <td class="text-end"><small>@row.HealthInsurance.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.UnemploymentInsurance.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.SocialInsurance.ToString("N0")</small></td>
+                                <td class="text-center"><small>@row.OvertimeDays</small></td>
+                                <td class="text-end"><small>@row.TotalOvertimePay.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.ResponsibilitySalary.ToString("N0")</small></td>
+                                @* <td class="text-center">
+                                    @if (row.HasAttendanceBonus)
+                                    {
+                                        <span class="badge bg-success">✅</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">—</span>
+                                    }
+                                </td> *@
+                                <td class="text-end"><small>@row.AttendanceBonusAmount.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.PreviousMonthSalary.ToString("N0")</small></td>
+                                <td class="text-end"><small>@row.RevenueBonus.ToString("N0")</small></td>
+                                <td><small class="text-truncate d-block" style="max-width:100px;" title="@row.JobDescription">@(row.JobDescription ?? "-")</small></td>
+                                <td class="text-end fw-bold text-warning"><small>@row.TotalRemaining.ToString("N0")</small></td>
+                                <td class="text-end fw-bold text-success"><small>@row.ActualPay.ToString("N0")</small></td>
+                                <td><small>@(row.Signature ?? "-")</small></td>
+                                <td><small>@(row.Note ?? "-")</small></td>
+                                <td class="text-center">
+                                    <div class="d-flex gap-1 justify-content-center">
+                                        <button class="btn btn-outline-primary btn-sm"
+                                                @onclick="() => OpenEditModal(row)"
+                                                title="Nhập thông tin lương">
+                                            ✏️
+                                        </button>
+                                        <button class="btn btn-outline-success btn-sm"
+                                                @onclick="() => ExportEmployeeAsync(row)"
+                                                title="Xuất Excel"
+                                                disabled="@(exportingEmployeeId == row.EmployeeId)">
+                                            @if (exportingEmployeeId == row.EmployeeId)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                            }
+                                            else
+                                            {
+                                                <text>📥</text>
+                                            }
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <small class="text-muted">Tổng: @FilteredSalaryRows.Count() / @salaryRows.Count nhân viên | Tháng @selectedMonth/@selectedYear</small>
+            }
+    }
+</div>
+
+<!-- ===== MODAL NHẬP THÔNG TIN LƯƠNG ===== -->
+@if (showEditModal && editingRow != null)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseEditModal"></div>
+    <div class="modal-custom">
+        <div class="modal-custom-dialog modal-lg-custom">
+            <div class="modal-custom-header">
+                <h5>✏️ Nhập thông tin lương — @editingRow.FullName (@editingRow.EmployeeCode)</h5>
+                <button class="btn-close-custom" @onclick="CloseEditModal">✕</button>
+            </div>
+            <div class="modal-custom-body">
+                <div class="row g-3">
+
+                    <!-- Loại đào tạo / Loại lao động -->
+                    <div class="col-md-6">
+                        <label class="form-label">Loại đào tạo</label>
+                        <input class="form-control form-control-sm" @bind="editDto.TrainingType" placeholder="VD: Nội bộ" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Loại lao động</label>
+                        <input class="form-control form-control-sm" @bind="editDto.LaborType" placeholder="VD: Chính thức" />
+                    </div>
+
+                    <!-- Lương căn bản / Ngày phải đi -->
+                    <div class="col-md-6">
+                        <label class="form-label">Lương căn bản (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sBasicSalary"
+                               @oninput="e => UpdateMoney(e, ref sBasicSalary, v => editDto.BasicSalary = v)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">SL ngày phải đi làm đủ</label>
+                        <input class="form-control form-control-sm" type="number" onclick="this.select()"
+                               @bind="editDto.RequiredWorkDays" min="1" max="31" />
+                    </div>
+
+                    <!-- Tạm ứng / Vi phạm -->
+                    <div class="col-md-6">
+                        <label class="form-label">Tạm ứng (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sAdvance"
+                               @oninput="e => UpdateMoney(e, ref sAdvance, v => editDto.Advance = v)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Vi phạm (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sViolation"
+                               @oninput="e => UpdateMoney(e, ref sViolation, v => editDto.Violation = v)" />
+                    </div>
+
+                    <!-- Đền thiệt hại / Đồng phục -->
+                    <div class="col-md-6">
+                        <label class="form-label">Đền thiệt hại (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sDamage"
+                               @oninput="e => UpdateMoney(e, ref sDamage, v => editDto.Damage = v)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Tiền đồng phục (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sUniformFee"
+                               @oninput="e => UpdateMoney(e, ref sUniformFee, v => editDto.UniformFee = v)" />
+                    </div>
+
+                    <!-- Giá cơm / Làm thêm -->
+                    <div class="col-md-6">
+                        <label class="form-label">Giá cơm trưa / ngày (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sLunchPrice"
+                               @oninput="e => UpdateMoney(e, ref sLunchPrice, v => editDto.LunchPrice = v)" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Làm thêm (ngày)</label>
+                        <input class="form-control form-control-sm" type="number" onclick="this.select()"
+                               @bind="editDto.OvertimeDays" min="0" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Tiền LT / ngày (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sOvertimeDayPay"
+                               @oninput="e => UpdateMoney(e, ref sOvertimeDayPay, v => editDto.OvertimeDayPay = v)" />
+                    </div>
+
+                    <!-- Lương trách nhiệm / Thưởng chuyên cần -->
+                    <div class="col-md-6">
+                        <label class="form-label">Lương trách nhiệm (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sResponsibilitySalary"
+                               @oninput="e => UpdateMoney(e, ref sResponsibilitySalary, v => editDto.ResponsibilitySalary = v)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Thưởng chuyên cần (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sAttendanceBonusAmount"
+                               @oninput="e => UpdateMoney(e, ref sAttendanceBonusAmount, v => editDto.AttendanceBonusAmount = v)" />
+                    </div>
+
+                    <!-- Lương tháng trước / Thưởng doanh thu -->
+                    <div class="col-md-6">
+                        <label class="form-label">Lương tháng trước (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sPreviousMonthSalary"
+                               @oninput="e => UpdateMoney(e, ref sPreviousMonthSalary, v => editDto.PreviousMonthSalary = v)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Thưởng doanh thu (đ)</label>
+                        <input class="form-control form-control-sm" type="text" onclick="this.select()"
+                               value="@sRevenueBonus"
+                               @oninput="e => UpdateMoney(e, ref sRevenueBonus, v => editDto.RevenueBonus = v)" />
+                    </div>
+
+                    <!-- Bảo hiểm -->
+                    <div class="col-md-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="chkInsurance"
+                                   @bind="editDto.HasInsurance" />
+                            <label class="form-check-label" for="chkInsurance">
+                                Có bảo hiểm (BH YT 1.5% + BH TN 1% + BHXH 17.5%)
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Mô tả công việc / Kí nhận / Ghi chú -->
+                    <div class="col-md-12">
+                        <label class="form-label">Mô tả công việc</label>
+                        <input class="form-control form-control-sm" @bind="editDto.JobDescription" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Kí nhận</label>
+                        <input class="form-control form-control-sm" @bind="editDto.Signature" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Ghi chú</label>
+                        <input class="form-control form-control-sm" @bind="editDto.Note" />
+                    </div>
+
+                </div>
+            </div>
+            <div class="modal-custom-footer">
+                <button class="btn btn-secondary btn-sm" @onclick="CloseEditModal" disabled="@isSaving">Hủy</button>
+                <button class="btn btn-primary btn-sm" @onclick="SaveSalaryRow" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    💾 Lưu
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .reports-container {
+        max-width: 100%;
+        padding: 0 0.5rem;
+    }
+
+    .page-title {
+        color: #512bd4;
+    }
+
+    /* Tabs */
+    .report-tabs {
+        display: flex;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .report-tab {
+        padding: 0.5rem 1.25rem;
+        border: none;
+        border-bottom: 3px solid transparent;
+        background: transparent;
+        color: #6c757d;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+        margin-bottom: -2px;
+        transition: color 0.15s;
+    }
+
+        .report-tab:hover {
+            color: #512bd4;
+            background: #f8f9fa;
+        }
+
+    .report-tab--active {
+        color: #512bd4;
+        font-weight: 700;
+        border-bottom: 3px solid #512bd4;
+    }
+
+    /* Bảng lương — cuộn ngang */
+    .salary-table {
+        font-size: 0.78rem;
+        white-space: nowrap;
+        min-width: max-content;
+    }
+
+        .salary-table th, .salary-table td {
+            padding: 0.25rem 0.4rem;
+            vertical-align: middle;
+        }
+
+    /* Cột cố định */
+    .col-fixed {
+        min-width: 90px;
+    }
+
+    .col-day {
+        min-width: 28px;
+        text-align: center;
+    }
+
+    .col-num {
+        min-width: 90px;
+    }
+
+    /* Màu ô chấm công */
+    .day-cell {
+        background: #fff;
+    }
+
+    .day-present {
+        background: #d4edda !important;
+        color: #155724;
+        font-weight: 700;
+    }
+
+    .day-half {
+        background: #fff3cd !important;
+        color: #856404;
+    }
+
+    /* Modal */
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1040;
+    }
+
+    .modal-custom {
+        position: fixed;
+        inset: 0;
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .modal-custom-dialog {
+        background: white;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 700px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        animation: modalIn 0.2s ease-out;
+    }
+
+    .modal-lg-custom {
+        max-width: 820px;
+    }
+
+    @@keyframes modalIn {
+        from {
+            transform: scale(0.95);
+            opacity: 0;
+        }
+
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+
+    .modal-custom-header {
+        padding: 1rem 1.25rem;
+        background: #512bd4;
+        color: white;
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+        .modal-custom-header h5 {
+            margin: 0;
+            font-size: 0.95rem;
+        }
+
+    .btn-close-custom {
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        cursor: pointer;
+        color: white;
+        padding: 0 4px;
+    }
+
+    .modal-custom-body {
+        padding: 1.25rem;
+    }
+
+    .modal-custom-footer {
+        padding: 0.75rem 1.25rem;
+        border-top: 1px solid #e9ecef;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+</style>
+
+@code {
+
+    // ── Export Excel ─────────────────────────────────────────────
+    private int exportingEmployeeId = 0;
+
+    private async Task ExportEmployeeAsync(SalaryRecordDto row)
+    {
+        exportingEmployeeId = row.EmployeeId;
+        try
+        {
+            var (success, data, fileName, error) =
+                await ApiService.ExportEmployeeSalaryAsync(row.EmployeeId, selectedMonth, selectedYear);
+
+            if (success && data != null)
+            {
+                await JS.InvokeVoidAsync("downloadFileFromBytes", fileName,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    data);
+            }
+            else
+            {
+                message = $"❌ Xuất Excel thất bại: {error}";
+                isSuccess = false;
+            }
+        }
+        finally
+        {
+            exportingEmployeeId = 0;
+        }
+    }
+
+    // ── Tìm kiếm / lọc ──────────────────────────────────────────
+    private string searchText = "";
+
+    private IEnumerable<MonthlyAttendanceRowDto> FilteredAttendanceRows =>
+        string.IsNullOrWhiteSpace(searchText) ? attendanceRows
+        : attendanceRows.Where(r =>
+            (r.EmployeeCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (r.FullName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (r.Position?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private IEnumerable<SalaryRecordDto> FilteredSalaryRows =>
+        string.IsNullOrWhiteSpace(searchText) ? salaryRows
+        : salaryRows.Where(r =>
+            (r.EmployeeCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (r.FullName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (r.Position?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (r.Department?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    // ── State ────────────────────────────────────────────────────
+    private int selectedMonth = DateTime.Now.Month;
+    private int selectedYear = DateTime.Now.Year;
+    private string activeTab = "attendance";
+    private bool isLoading = false;
+    private bool isSaving = false;
+    private string message = "";
+    private bool isSuccess = false;
+
+    private int daysInMonth => DateTime.DaysInMonth(selectedYear, selectedMonth);
+
+    private List<MonthlyAttendanceRowDto> attendanceRows = new();
+    private List<SalaryRecordDto> salaryRows = new();
+
+    // ── Edit modal ───────────────────────────────────────────────
+    private bool showEditModal = false;
+    private SalaryRecordDto? editingRow = null;
+    private int editingEmployeeId = 0;
+    private SaveSalaryDto editDto = new();
+
+    // ── Chuỗi hiển thị cho các ô tiền tệ ────────────────────────
+    private string sBasicSalary = "0";
+    private string sAdvance = "0";
+    private string sViolation = "0";
+    private string sDamage = "0";
+    private string sUniformFee = "0";
+    private string sLunchPrice = "0";
+    private string sOvertimeDayPay = "0";
+    private string sResponsibilitySalary = "0";
+    private string sAttendanceBonusAmount = "0";
+    private string sPreviousMonthSalary = "0";
+    private string sRevenueBonus = "0";
+
+    // Culture vi-VN: dấu . phân cách nghìn, dấu , thập phân
+    private static readonly System.Globalization.CultureInfo _viVN =
+        new System.Globalization.CultureInfo("vi-VN");
+
+    // ── Helper: format decimal → "500.000" ──────────────────────
+    private string Fmt(decimal v) =>
+        v == 0 ? "0" : v.ToString("N0", _viVN);
+
+    // ── Helper: parse "500.000" hoặc "500000" → decimal ─────────
+    private decimal ParseMoney(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return 0;
+        // Chỉ giữ lại chữ số
+        var raw = new string(s.Where(char.IsDigit).ToArray());
+        return decimal.TryParse(raw, out var val) && val >= 0 ? val : 0;
+    }
+
+    // ── Handler dùng chung cho tất cả ô tiền tệ ─────────────────
+    private void UpdateMoney(ChangeEventArgs e, ref string display, Action<decimal> setter)
+    {
+        var val = ParseMoney(e.Value?.ToString());
+        setter(val);
+        // Hiển thị số thô khi đang nhập (chưa format), format khi val > 0
+        display = val == 0 ? "" : Fmt(val);
+    }
+
+    // ── Khởi tạo chuỗi hiển thị khi mở modal ───────────────────
+    private void InitMoneyDisplays()
+    {
+        sBasicSalary = Fmt(editDto.BasicSalary);
+        sAdvance = Fmt(editDto.Advance);
+        sViolation = Fmt(editDto.Violation);
+        sDamage = Fmt(editDto.Damage);
+        sUniformFee = Fmt(editDto.UniformFee);
+        sLunchPrice = Fmt(editDto.LunchPrice);
+        sOvertimeDayPay = Fmt(editDto.OvertimeDayPay);
+        sResponsibilitySalary = Fmt(editDto.ResponsibilitySalary);
+        sAttendanceBonusAmount = Fmt(editDto.AttendanceBonusAmount);
+        sPreviousMonthSalary = Fmt(editDto.PreviousMonthSalary);
+        sRevenueBonus = Fmt(editDto.RevenueBonus);
+    }
+
+    // ────────────────────────────────────────────────────────────
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthService.TryRestoreSessionAsync();
+            var canView = await AuthService.HasPermissionAsync("Reports.View");
+            if (!canView) { Navigation.NavigateTo("/"); return; }
+
+            await LoadDataAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        message = "";
+        try
+        {
+            var t1 = ApiService.GetMonthlyAttendanceAsync(selectedMonth, selectedYear);
+            var t2 = ApiService.GetSalaryListAsync(selectedMonth, selectedYear);
+            await Task.WhenAll(t1, t2);
+            attendanceRows = t1.Result;
+            salaryRows = t2.Result;
+        }
+        finally { isLoading = false; }
+    }
+
+    // ── Mở modal nhập lương ──────────────────────────────────────
+    private void OpenEditModal(SalaryRecordDto row)
+    {
+        editingRow = row;
+        editingEmployeeId = row.EmployeeId;
+        editDto = new SaveSalaryDto
+        {
+            EmployeeId = row.EmployeeId,
+            Month = selectedMonth,
+            Year = selectedYear,
+            TrainingType = row.TrainingType,
+            LaborType = row.LaborType,
+            BasicSalary = row.BasicSalary,
+            RequiredWorkDays = row.RequiredWorkDays,
+            Advance = row.Advance,
+            Damage = row.Damage,
+            UniformFee = row.UniformFee,
+            LunchPrice = row.LunchPrice,
+            Violation = row.Violation,
+            HasInsurance = row.HasInsurance,
+            OvertimeDays = row.OvertimeDays,
+            OvertimeDayPay = row.OvertimeDayPay,
+            ResponsibilitySalary = row.ResponsibilitySalary,
+            AttendanceBonusAmount = row.AttendanceBonusAmount,
+            PreviousMonthSalary = row.PreviousMonthSalary,
+            RevenueBonus = row.RevenueBonus,
+            JobDescription = row.JobDescription,
+            Signature = row.Signature,
+            Note = row.Note
+        };
+
+        InitMoneyDisplays(); // ✅ Format hiển thị ngay khi mở modal
+        showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        if (!isSaving)
+        {
+            showEditModal = false;
+            editingRow = null;
+            editingEmployeeId = 0;
+        }
+    }
+
+    // ── Lưu bảng lương ──────────────────────────────────────────
+    private async Task SaveSalaryRow()
+    {
+        isSaving = true;
+        try
+        {
+            var (success, msg) = await ApiService.SaveSalaryAsync(editDto);
+            if (success)
+            {
+                message = $"✅ Đã lưu lương cho {editingRow?.FullName}";
+                isSuccess = true;
+                showEditModal = false;
+                await LoadDataAsync();
+            }
+            else
+            {
+                message = $"❌ {msg}";
+                isSuccess = false;
+            }
+        }
+        finally { isSaving = false; }
+    }
+}

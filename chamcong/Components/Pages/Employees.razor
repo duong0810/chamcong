@@ -1,0 +1,829 @@
+﻿@page "/employees"
+@rendermode InteractiveServer
+@inject ApiService ApiService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Quản lý nhân viên</PageTitle>
+
+<div class="employees-container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="page-title mb-0">👥 Quản Lý Nhân Viên</h2>
+        <button class="btn btn-primary" @onclick="OpenAddModal">➕ Thêm nhân viên</button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert alert-@(isSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
+            <strong>@(isSuccess ? "✅" : "❌")</strong> @message
+            <button type="button" class="btn-close" @onclick="() => message = string.Empty"></button>
+        </div>
+    }
+
+    <!-- ===== TABS ===== -->
+    <div class="emp-tabs mb-3">
+        <button class="emp-tab @(activeTab == "active" ? "emp-tab--active" : "")" @onclick='() => SwitchTab("active")'>
+            🟢 Đang làm việc
+            <span class="emp-tab-badge">@employees.Count</span>
+        </button>
+        <button class="emp-tab @(activeTab == "inactive" ? "emp-tab--active" : "")" @onclick='() => SwitchTab("inactive")'>
+            🔴 Đã nghỉ việc
+            <span class="emp-tab-badge emp-tab-badge--inactive">@inactiveEmployees.Count</span>
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Đang tải...</p>
+        </div>
+    }
+    else
+    {
+        <!-- Thanh tìm kiếm -->
+        <div class="mb-3">
+            <input class="form-control"
+                   placeholder="🔍 Tìm theo tên, mã, phòng ban..."
+                   @bind="searchText"
+                   @bind:event="oninput" />
+        </div>
+
+        @if (activeTab == "active")
+        {
+            <!-- ===== TAB ĐANG LÀM VIỆC ===== -->
+            @if (!FilteredEmployees.Any())
+            {
+                <div class="alert alert-info text-center">Chưa có nhân viên nào đang làm việc.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Mã NV</th>
+                                <th>Họ tên</th>
+                                <th>Email</th>
+                                <th>Điện thoại</th>
+                                <th>Phòng ban</th>
+                                <th>Công việc</th>
+                                <th>Khuôn mặt</th>
+                                <th class="text-center">Nghỉ việc</th>
+                                <th class="text-center">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var emp in FilteredEmployees)
+                            {
+                                <tr class="@(pendingDeactivate.Contains(emp.Id) ? "table-warning" : "")">
+                                    <td><span class="badge bg-secondary">@emp.EmployeeCode</span></td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="avatar-sm">@emp.FullName.Substring(0, 1).ToUpper()</div>
+                                            <strong>@emp.FullName</strong>
+                                        </div>
+                                    </td>
+                                    <td><small>@emp.Email</small></td>
+                                    <td><small>@(emp.PhoneNumber ?? "-")</small></td>
+                                    <td><small>@(emp.Department ?? "-")</small></td>
+                                    <td><small>@(emp.Position ?? "-")</small></td>
+                                    <td>
+                                        @if (emp.HasFace)
+                                        {
+                                            <span class="badge bg-success">✅ Đã đăng ký</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning text-dark">⚠️ Chưa có</span>
+                                        }
+                                    </td>
+                                    <!-- Checkbox nghỉ việc -->
+                                    <td class="text-center">
+                                        <div class="form-check d-flex justify-content-center">
+                                            <input class="form-check-input checkbox-resign"
+                                                   type="checkbox"
+                                                   checked="@pendingDeactivate.Contains(emp.Id)"
+                                                   @onchange="() => ToggleDeactivate(emp)" />
+                                        </div>
+                                    </td>
+                                    <td class="text-center">
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-primary" @onclick="() => OpenEditModal(emp)" title="Sửa">✏️</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <small class="text-muted">Tổng: @FilteredEmployees.Count() / @employees.Count nhân viên</small>
+            }
+        }
+        else
+        {
+            <!-- ===== TAB ĐÃ NGHỈ VIỆC ===== -->
+            @if (!FilteredInactiveEmployees.Any())
+            {
+                <div class="alert alert-info text-center">Không có nhân viên nào đã nghỉ việc.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Mã NV</th>
+                                <th>Họ tên</th>
+                                <th>Email</th>
+                                <th>Điện thoại</th>
+                                <th>Phòng ban</th>
+                                <th>Chức vụ</th>
+                                <th class="text-center">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var emp in FilteredInactiveEmployees)
+                            {
+                                <tr class="table-secondary">
+                                    <td><span class="badge bg-secondary">@emp.EmployeeCode</span></td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="avatar-sm avatar-inactive">@emp.FullName.Substring(0, 1).ToUpper()</div>
+                                            <span class="text-muted">@emp.FullName</span>
+                                        </div>
+                                    </td>
+                                    <td><small class="text-muted">@emp.Email</small></td>
+                                    <td><small class="text-muted">@(emp.PhoneNumber ?? "-")</small></td>
+                                    <td><small class="text-muted">@(emp.Department ?? "-")</small></td>
+                                    <td><small class="text-muted">@(emp.Position ?? "-")</small></td>
+                                    <td class="text-center">
+                                        <button class="btn btn-outline-success btn-sm" @onclick="() => ConfirmRestore(emp)">
+                                            🔄 Khôi phục
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <small class="text-muted">Tổng: @FilteredInactiveEmployees.Count() / @inactiveEmployees.Count nhân viên nghỉ việc</small>
+            }
+        }
+    }
+</div>
+
+<!-- ===== MODAL THÊM / SỬA ===== -->
+@if (showFormModal)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseFormModal"></div>
+    <div class="modal-custom">
+        <div class="modal-custom-dialog">
+            <div class="modal-custom-header">
+                <h5>@(isEditing ? "✏️ Sửa nhân viên" : "➕ Thêm nhân viên mới")</h5>
+                <button class="btn-close-custom" @onclick="CloseFormModal">✕</button>
+            </div>
+            <div class="modal-custom-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Mã nhân viên</label>
+                        @if (isEditing)
+                        {
+                            <input class="form-control"
+                                   value="@formModel.EmployeeCode"
+                                   disabled />
+                        }
+                        else
+                        {
+                            <input class="form-control"
+                                   value=""
+                                   disabled
+                                   placeholder="Tự động sinh (NV001, NV002,...)" />
+                            <small class="text-muted">🤖 Mã sẽ được tạo tự động bởi hệ thống</small>
+                        }
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Họ và tên <span class="text-danger">*</span></label>
+                        <input class="form-control @(errors.ContainsKey("FullName") ? "is-invalid" : "")"
+                               @bind="formModel.FullName" placeholder="Nguyễn Văn A" />
+                        @if (errors.ContainsKey("FullName"))
+                        {
+                            <div class="invalid-feedback">@errors["FullName"]</div>
+                        }
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Email <span class="text-danger">*</span></label>
+                        <input class="form-control @(errors.ContainsKey("Email") ? "is-invalid" : "")"
+                               type="email" @bind="formModel.Email" placeholder="email@example.com" />
+                        @if (errors.ContainsKey("Email"))
+                        {
+                            <div class="invalid-feedback">@errors["Email"]</div>
+                        }
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Số điện thoại</label>
+                        <input class="form-control @(errors.ContainsKey("PhoneNumber") ? "is-invalid" : "")"
+                               @bind="formModel.PhoneNumber" placeholder="0xxxxxxxxx" />
+                        @if (errors.ContainsKey("PhoneNumber"))
+                        {
+                            <div class="invalid-feedback">@errors["PhoneNumber"]</div>
+                        }
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Phòng ban</label>
+                        <div class="input-group">
+                            <select class="form-select" @bind="formModel.Department">
+                                <option value="">-- Chọn phòng ban --</option>
+                                @foreach (var dept in departments)
+                                {
+                                    <option value="@dept.Name">@dept.Name</option>
+                                }
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button"
+                                    @onclick="OpenAddDepartmentModal" title="Thêm phòng ban mới">
+                                ➕
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Công việc (Chức vụ)</label>
+                        <input class="form-control" @bind="formModel.Position" placeholder="Nhân viên, Trưởng phòng..." />
+                    </div>
+                </div>
+            </div>
+            <div class="modal-custom-footer">
+                <button class="btn btn-secondary" @onclick="CloseFormModal" disabled="@isSaving">Hủy</button>
+                <button class="btn btn-primary" @onclick="SaveEmployee" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    @(isEditing ? "Lưu thay đổi" : "Thêm mới")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ===== MODAL XÁC NHẬN NGHỈ VIỆC ===== -->
+@if (showDeactivateModal && employeeToDeactivate != null)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseDeactivateModal"></div>
+    <div class="modal-custom">
+        <div class="modal-custom-dialog" style="max-width:420px;">
+            <div class="modal-custom-header" style="background:#dc3545;">
+                <h5 style="color:white;">⚠️ Xác nhận nghỉ việc</h5>
+                <button class="btn-close-custom" style="color:white;" @onclick="CloseDeactivateModal">✕</button>
+            </div>
+            <div class="modal-custom-body text-center py-4">
+                <div style="font-size:3rem;">📋</div>
+                <p class="mt-2">Xác nhận cho nhân viên nghỉ việc:</p>
+                <strong class="d-block fs-5">@employeeToDeactivate.FullName</strong>
+                <small class="text-muted">(@employeeToDeactivate.EmployeeCode)</small>
+                <p class="text-warning mt-3 small">Nhân viên sẽ chuyển sang tab "Đã nghỉ việc". Có thể khôi phục lại sau.</p>
+            </div>
+            <div class="modal-custom-footer">
+                <button class="btn btn-secondary" @onclick="CloseDeactivateModal" disabled="@isSaving">Hủy</button>
+                <button class="btn btn-danger" @onclick="ConfirmDeactivate" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Xác nhận nghỉ việc
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ===== MODAL XÁC NHẬN KHÔI PHỤC ===== -->
+@if (showRestoreModal && employeeToRestore != null)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseRestoreModal"></div>
+    <div class="modal-custom">
+        <div class="modal-custom-dialog" style="max-width:420px;">
+            <div class="modal-custom-header" style="background:#198754;">
+                <h5 style="color:white;">🔄 Xác nhận khôi phục</h5>
+                <button class="btn-close-custom" style="color:white;" @onclick="CloseRestoreModal">✕</button>
+            </div>
+            <div class="modal-custom-body text-center py-4">
+                <div style="font-size:3rem;">🔄</div>
+                <p class="mt-2">Khôi phục nhân viên trở lại làm việc:</p>
+                <strong class="d-block fs-5">@employeeToRestore.FullName</strong>
+                <small class="text-muted">(@employeeToRestore.EmployeeCode)</small>
+            </div>
+            <div class="modal-custom-footer">
+                <button class="btn btn-secondary" @onclick="CloseRestoreModal" disabled="@isSaving">Hủy</button>
+                <button class="btn btn-success" @onclick="RestoreEmployee" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Khôi phục
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ===== MODAL THÊM PHÒNG BAN ===== -->
+@if (showAddDeptModal)
+{
+    <div class="modal-backdrop-custom" style="z-index:1060;" @onclick="CloseAddDepartmentModal"></div>
+    <div class="modal-custom" style="z-index:1070;">
+        <div class="modal-custom-dialog" style="max-width:380px;">
+            <div class="modal-custom-header">
+                <h5>➕ Thêm phòng ban mới</h5>
+                <button class="btn-close-custom" @onclick="CloseAddDepartmentModal">✕</button>
+            </div>
+            <div class="modal-custom-body">
+                <label class="form-label">Tên phòng ban <span class="text-danger">*</span></label>
+                <input class="form-control" @bind="newDepartmentName" placeholder="VD: Phòng Kỹ Thuật" />
+                @if (!string.IsNullOrEmpty(deptErrorMessage))
+                {
+                    <small class="text-danger">@deptErrorMessage</small>
+                }
+            </div>
+            <div class="modal-custom-footer">
+                <button class="btn btn-secondary" @onclick="CloseAddDepartmentModal" disabled="@isSaving">Hủy</button>
+                <button class="btn btn-primary" @onclick="SaveNewDepartment" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Thêm
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .employees-container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 0.75rem;
+    }
+
+    .page-title {
+        color: #512bd4;
+    }
+
+    .emp-tabs {
+        display: flex;
+        border-bottom: 2px solid #dee2e6;
+        gap: 0;
+    }
+
+    .emp-tab {
+        padding: 0.6rem 1.25rem;
+        border: none;
+        border-bottom: 3px solid transparent;
+        background: transparent;
+        color: #6c757d;
+        cursor: pointer;
+        font-size: 0.95rem;
+        font-weight: 400;
+        border-radius: 0;
+        margin-bottom: -2px;
+        transition: color 0.15s, background-color 0.15s;
+        height: auto;
+        line-height: 1.5;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+        .emp-tab:hover {
+            color: #512bd4;
+            background-color: #f8f9fa;
+        }
+
+    .emp-tab--active {
+        color: #512bd4;
+        font-weight: 600;
+        border-bottom: 3px solid #512bd4;
+        background: transparent;
+    }
+
+    .emp-tab-badge {
+        display: inline-block;
+        padding: 0.15em 0.55em;
+        font-size: 0.78rem;
+        font-weight: 600;
+        border-radius: 10px;
+        background-color: #0d6efd;
+        color: white;
+        line-height: 1.4;
+    }
+
+    .emp-tab-badge--inactive {
+        background-color: #6c757d;
+    }
+
+    .avatar-sm {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #512bd4, #7c56e0);
+        color: white;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        flex-shrink: 0;
+    }
+
+    .avatar-inactive {
+        background: linear-gradient(135deg, #6c757d, #adb5bd);
+    }
+
+    /* Checkbox nghỉ việc */
+    .checkbox-resign {
+        width: 1.2rem;
+        height: 1.2rem;
+        cursor: pointer;
+        accent-color: #dc3545;
+    }
+
+    .modal-backdrop-custom {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1040;
+    }
+
+    .modal-custom {
+        position: fixed;
+        inset: 0;
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .modal-custom-dialog {
+        background: white;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 620px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        animation: modalIn 0.2s ease-out;
+    }
+
+    @@keyframes modalIn {
+        from {
+            transform: scale(0.95);
+            opacity: 0;
+        }
+
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+
+    .modal-custom-header {
+        padding: 1rem 1.25rem;
+        background: #512bd4;
+        color: white;
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+        .modal-custom-header h5 {
+            margin: 0;
+        }
+
+    .btn-close-custom {
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        cursor: pointer;
+        color: white;
+        line-height: 1;
+        padding: 0 4px;
+    }
+
+    .modal-custom-body {
+        padding: 1.25rem;
+    }
+
+    .modal-custom-footer {
+        padding: 0.75rem 1.25rem;
+        border-top: 1px solid #e9ecef;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+</style>
+
+@code {
+    private List<EmployeeDto> employees = new();
+    private List<EmployeeDto> inactiveEmployees = new();
+    private HashSet<int> pendingDeactivate = new(); // tracking checkbox đang được tích
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string message = "";
+    private bool isSuccess = false;
+    private string searchText = "";
+    private string activeTab = "active";
+
+    private List<DepartmentDto> departments = new();
+    private bool showAddDeptModal = false;
+    private string newDepartmentName = "";
+    private string deptErrorMessage = "";
+
+    // Form modal
+    private bool showFormModal = false;
+    private bool isEditing = false;
+    private EmployeeDto formModel = new();
+    private Dictionary<string, string> errors = new();
+
+    // Deactivate modal (nghỉ việc)
+    private bool showDeactivateModal = false;
+    private EmployeeDto? employeeToDeactivate = null;
+
+    // Restore modal
+    private bool showRestoreModal = false;
+    private EmployeeDto? employeeToRestore = null;
+
+    private bool canEdit = false;
+    private bool canView = false;
+
+    private IEnumerable<EmployeeDto> FilteredEmployees =>
+        string.IsNullOrWhiteSpace(searchText) ? employees
+        : employees.Where(e =>
+            (e.FullName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (e.EmployeeCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (e.Department?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (e.Email?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private IEnumerable<EmployeeDto> FilteredInactiveEmployees =>
+        string.IsNullOrWhiteSpace(searchText) ? inactiveEmployees
+        : inactiveEmployees.Where(e =>
+            (e.FullName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (e.EmployeeCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (e.Department?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (e.Email?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // ✅ Restore session trước khi check permission
+            await AuthService.TryRestoreSessionAsync();
+
+            canView = await AuthService.HasPermissionAsync("Employees.View");
+            canEdit = await AuthService.HasPermissionAsync("Employees.Edit");
+
+            if (!canView)
+            {
+                Navigation.NavigateTo("/");
+                return;
+            }
+            await LoadEmployeesAsync();
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadEmployeesAsync();
+        departments = await ApiService.GetDepartmentsAsync();
+    }
+
+    private async Task LoadEmployeesAsync()
+    {
+        isLoading = true;
+        employees = await ApiService.GetEmployeesAsync();
+        inactiveEmployees = await ApiService.GetInactiveEmployeesAsync();
+        isLoading = false;
+    }
+
+    private async Task SwitchTab(string tab)
+    {
+        activeTab = tab;
+        searchText = "";
+        pendingDeactivate.Clear();
+        await LoadEmployeesAsync();
+    }
+
+    // ===== CHECKBOX NGHỈ VIỆC =====
+    private void ToggleDeactivate(EmployeeDto emp)
+    {
+        // Khi tích checkbox → hiện modal xác nhận
+        employeeToDeactivate = emp;
+        showDeactivateModal = true;
+    }
+
+    private void CloseDeactivateModal()
+    {
+        // Bỏ tích nếu hủy
+        if (employeeToDeactivate != null)
+            pendingDeactivate.Remove(employeeToDeactivate.Id);
+        showDeactivateModal = false;
+        employeeToDeactivate = null;
+    }
+
+    private async Task ConfirmDeactivate()
+    {
+        if (employeeToDeactivate == null) return;
+        isSaving = true;
+        try
+        {
+            var ok = await ApiService.DeleteEmployeeAsync(employeeToDeactivate.Id);
+            if (ok)
+            {
+                message = $"✅ Đã cho nghỉ việc nhân viên {employeeToDeactivate.FullName}";
+                isSuccess = true;
+                showDeactivateModal = false;
+                pendingDeactivate.Remove(employeeToDeactivate.Id);
+                employeeToDeactivate = null;
+                await LoadEmployeesAsync();
+            }
+            else
+            {
+                message = "❌ Thao tác thất bại. Vui lòng thử lại.";
+                isSuccess = false;
+                CloseDeactivateModal();
+            }
+        }
+        finally { isSaving = false; }
+    }
+
+    // ===== THÊM =====
+    private void OpenAddModal()
+    {
+        formModel = new EmployeeDto();
+        isEditing = false;
+        errors.Clear();
+        showFormModal = true;
+    }
+
+    // ===== SỬA =====
+    private void OpenEditModal(EmployeeDto emp)
+    {
+        formModel = new EmployeeDto
+        {
+            Id = emp.Id,
+            EmployeeCode = emp.EmployeeCode,
+            FullName = emp.FullName,
+            Email = emp.Email,
+            PhoneNumber = emp.PhoneNumber,
+            Department = emp.Department,
+            Position = emp.Position
+        };
+        isEditing = true;
+        errors.Clear();
+        showFormModal = true;
+    }
+
+    private void CloseFormModal() { if (!isSaving) showFormModal = false; }
+
+    private bool ValidateForm()
+    {
+        errors.Clear();
+
+        // Khi sửa mới cần kiểm tra mã nhân viên, khi thêm mới backend tự sinh
+        if (isEditing && string.IsNullOrWhiteSpace(formModel.EmployeeCode))
+            errors["EmployeeCode"] = "Mã nhân viên không được để trống";
+
+        if (string.IsNullOrWhiteSpace(formModel.FullName))
+            errors["FullName"] = "Họ tên không được để trống";
+
+        if (string.IsNullOrWhiteSpace(formModel.Email))
+            errors["Email"] = "Email không được để trống";
+
+        // Kiểm tra định dạng số điện thoại (nếu có nhập)
+        if (!string.IsNullOrWhiteSpace(formModel.PhoneNumber))
+        {
+            var phone = formModel.PhoneNumber.Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(phone, @"^(0[3|5|7|8|9])[0-9]{8}$"))
+                errors["PhoneNumber"] = "Số điện thoại không hợp lệ (VD: 0912345678)";
+            else
+            {
+                var duplicate = employees.Concat(inactiveEmployees)
+                    .Any(e => e.PhoneNumber == phone && e.Id != formModel.Id);
+                if (duplicate)
+                    errors["PhoneNumber"] = "Số điện thoại này đã được sử dụng bởi nhân viên khác.";
+            }
+        }
+
+        return errors.Count == 0;
+    }
+
+    private async Task SaveEmployee()
+    {
+        if (!ValidateForm()) return;
+        isSaving = true;
+        try
+        {
+            if (isEditing)
+            {
+                var result = await ApiService.UpdateEmployeeAsync(formModel.Id, formModel);
+                if (result != null && result.Id > 0)
+                {
+                    message = $"✅ Đã cập nhật {formModel.FullName}";
+                    isSuccess = true;
+                    showFormModal = false;
+                    await LoadEmployeesAsync();
+                }
+                else
+                {
+                    message = "❌ Cập nhật thất bại. Vui lòng thử lại.";
+                    isSuccess = false;
+                }
+            }
+            else
+            {
+                var (result, errorMsg) = await ApiService.CreateEmployeeAsync(formModel);
+                if (result != null && result.Id > 0)
+                {
+                    message = $"✅ Đã thêm {formModel.FullName}";
+                    isSuccess = true;
+                    showFormModal = false;
+                    await LoadEmployeesAsync();
+                }
+                else
+                {
+                    message = $"❌ {errorMsg}";
+                    isSuccess = false;
+                }
+            }
+        }
+        finally { isSaving = false; }
+    }
+
+    // ===== KHÔI PHỤC =====
+    private void ConfirmRestore(EmployeeDto emp) { employeeToRestore = emp; showRestoreModal = true; }
+    private void CloseRestoreModal() { if (!isSaving) showRestoreModal = false; }
+
+    private async Task RestoreEmployee()
+    {
+        if (employeeToRestore == null) return;
+        isSaving = true;
+        try
+        {
+            var ok = await ApiService.RestoreEmployeeAsync(employeeToRestore.Id);
+            if (ok)
+            {
+                message = $"✅ Đã khôi phục nhân viên {employeeToRestore.FullName}";
+                isSuccess = true;
+                showRestoreModal = false;
+                employeeToRestore = null;
+                activeTab = "active";
+                await LoadEmployeesAsync();
+            }
+            else
+            {
+                message = "❌ Khôi phục thất bại. Vui lòng thử lại.";
+                isSuccess = false;
+            }
+        }
+        finally { isSaving = false; }
+    }
+
+ 
+
+    private void OpenAddDepartmentModal()
+    {
+        newDepartmentName = "";
+        deptErrorMessage = "";
+        showAddDeptModal = true;
+    }
+
+    private void CloseAddDepartmentModal() { showAddDeptModal = false; }
+
+    private async Task SaveNewDepartment()
+    {
+        if (string.IsNullOrWhiteSpace(newDepartmentName))
+        {
+            deptErrorMessage = "Tên phòng ban không được để trống";
+            return;
+        }
+        isSaving = true;
+        try
+        {
+            var result = await ApiService.CreateDepartmentAsync(newDepartmentName.Trim());
+            if (result != null)
+            {
+                departments.Add(result);
+                formModel.Department = result.Name; // tự chọn phòng ban vừa tạo
+                showAddDeptModal = false;
+            }
+            else
+            {
+                deptErrorMessage = "Phòng ban đã tồn tại hoặc có lỗi xảy ra";
+            }
+        }
+        finally { isSaving = false; }
+    }
+
+}

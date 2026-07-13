@@ -1,0 +1,428 @@
+﻿@inherits LayoutComponentBase
+@inject IJSRuntime JS
+@inject AuthService AuthService
+@inject ApiService ApiService
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<div class="page">
+    <div class="sidebar">
+
+        <div class="top-row ps-3 navbar navbar-dark">
+            <div class="container-fluid">
+                <span class="navbar-brand">⏰ Chấm Công</span>
+                <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+            </div>
+        </div>
+
+        <div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
+            <nav class="flex-column">
+
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="/home">
+                        <span class="bi bi-house" aria-hidden="true"></span> Trang Chủ
+                    </NavLink>
+                </div>
+
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="/attendance">
+                        <span class="bi bi-camera" aria-hidden="true"></span> Chấm Công
+                    </NavLink>
+                </div>
+
+
+                @if (canShowRegisterFace)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="/register-face">
+                            <span class="bi bi-person-bounding-box" aria-hidden="true"></span> Đăng Ký Khuôn Mặt
+                        </NavLink>
+                    </div>
+                }
+               
+
+                @if (canViewEmployees)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="/employees">
+                            <span class="bi bi-people" aria-hidden="true"></span> Nhân Viên
+                        </NavLink>
+                    </div>
+                }
+
+                @if (canViewAttendanceAll)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="/history">
+                            <span class="bi bi-clock-history" aria-hidden="true"></span> Lịch Sử
+                        </NavLink>
+                    </div>
+                }
+
+                @if (canViewReports)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="/reports">
+                            <span class="bi bi-bar-chart" aria-hidden="true"></span> Bảng lương
+                        </NavLink>
+                    </div>
+                }
+
+                @if (canManageUsers)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/user-management">
+                            <span class="bi bi-shield-lock" aria-hidden="true"></span> Phân Quyền
+                        </NavLink>
+                    </div>
+                }
+
+                @if (canEditSettings)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/company-settings">
+                            <span class="bi bi-gear" aria-hidden="true"></span> Cài Đặt
+                        </NavLink>
+                    </div>
+                }
+
+            </nav>
+        </div>
+
+        <div class="sidebar-footer px-3 py-2">
+            <button class="btn btn-sm btn-outline-light w-100" @onclick="HandleLogout">
+                🚪 Đăng xuất
+            </button>
+        </div>
+
+        
+
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <h3>⏰ Hệ Thống Chấm Công</h3>
+            @if (!string.IsNullOrEmpty(currentUserName))
+            {
+                <span class="user-info">
+                    👤 <strong>@currentUserName</strong>
+                </span>
+            }
+        </div>
+
+      
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<style>
+    .user-info {
+        font-size: 0.85rem;
+        color: #512bd4;
+        white-space: nowrap;
+    }
+
+    .page {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+    }
+
+    .sidebar {
+        background-image: linear-gradient(180deg, rgb(5, 39, 103) 0%, #3a0647 70%);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sidebar-footer {
+        margin-top: auto;
+        border-top: 1px solid rgba(255,255,255,0.15);
+    }
+
+    /* Main top-row (keeps light header in main area) */
+    .top-row {
+        background-color: #f7f7f7;
+        border-bottom: 1px solid #d6d5d5;
+        justify-content: space-between;
+        height: 2.4rem;
+        display: flex;
+        align-items: center;
+    }
+
+        .top-row h3 {
+            margin: 0;
+            font-size: 1rem;
+            color: #512bd4;
+        }
+
+    /* Sidebar-specific top-row */
+    .sidebar .top-row {
+        background: transparent;
+        border-bottom: none;
+        justify-content: flex-start;
+        padding-left: 0.4rem;
+        height: 2.4rem;
+        display: flex;
+        align-items: center;
+    }
+
+    main {
+        flex: 1;
+    }
+
+    .content {
+        padding: 0.75rem !important;
+    }
+
+    .navbar-toggler {
+        appearance: none;
+        cursor: pointer;
+        width: 2.6rem;
+        height: 2rem;
+        color: white;
+        position: absolute;
+        top: 0.35rem;
+        right: 0.9rem;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.55%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") no-repeat center/1.4rem;
+    }
+
+        .navbar-toggler:checked ~ .nav-scrollable {
+            display: block;
+        }
+
+    .navbar-brand {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: darkred;
+        opacity: 1;
+    }
+
+    .sidebar .navbar-brand {
+        color: #ffffff !important;
+        font-weight: 700;
+        font-size: 0.95rem;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.55);
+        opacity: 1;
+        filter: none;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        padding-left: 0.25rem;
+    }
+
+    .nav-item {
+        font-size: 0.85rem;
+        padding-bottom: 0.35rem;
+    }
+
+        .nav-item:first-of-type {
+            padding-top: 0.6rem;
+        }
+
+        .nav-item:last-of-type {
+            padding-bottom: 0.6rem;
+        }
+
+    .nav-link {
+        color: #d7d7d7;
+        border-radius: 6px;
+        height: 2.2rem;
+        display: flex;
+        align-items: center;
+        line-height: 1;
+        padding: 0 0.5rem;
+        font-weight: 600;
+    }
+
+        .nav-link:hover {
+            background-color: rgba(255,255,255,0.06);
+            color: white;
+        }
+
+        .nav-link.active {
+            background-color: rgba(255,255,255,0.22);
+            color: white;
+        }
+
+    .bi {
+        width: 1.4rem;
+        height: 1.4rem;
+        display: inline-block;
+        margin-right: 0.5rem;
+        flex: 0 0 1.4rem;
+    }
+
+    @@media (min-width: 641px) {
+        .page {
+            flex-direction: row;
+        }
+
+        .sidebar {
+            width: 200px;
+            height: 100vh;
+            position: sticky;
+            top: 0;
+        }
+
+        .navbar-toggler {
+            display: none;
+        }
+
+        .nav-scrollable {
+            display: block !important; /* ← thêm !important */
+            overflow-y: auto;
+            padding-right: 0.2rem;
+        }
+
+        .top-row {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+    }
+</style>
+
+@code {
+    private bool collapseNavMenu = true;
+    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    private bool canViewEmployees;
+    private bool canViewAttendanceAll;
+    private bool canManageUsers;
+    private bool canEditSettings;
+    private bool canShowRegisterFace;
+    private bool canViewReports;
+    private string currentUserName = "";
+
+    protected override void OnInitialized()
+    {
+        AuthService.OnAuthStateChanged += OnAuthStateChangedHandler;
+    }
+
+        protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthService.TryRestoreSessionAsync();
+
+            var isAuth = await AuthService.IsAuthenticatedAsync();
+            if (!isAuth)
+            {
+                // Lấy đường dẫn hiện tại (VD: /history, /reports...)
+                var relativePath = new Uri(Navigation.Uri).PathAndQuery;
+
+                // Bỏ qua các trang public, tránh redirect loop
+                if (!relativePath.StartsWith("/login") && !relativePath.StartsWith("/"))
+                {
+                    var returnUrl = Uri.EscapeDataString(relativePath);
+                    Navigation.NavigateTo($"/login?returnUrl={returnUrl}", forceLoad: false);
+                }
+                else
+                {
+                    Navigation.NavigateTo("/login", forceLoad: false);
+                }
+                return;
+            }
+
+            await LoadPermissionsAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnAuthStateChangedHandler()
+    {
+        await LoadPermissionsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadPermissionsAsync()
+    {
+        try
+        {
+            var isAuth = await AuthService.IsAuthenticatedAsync();
+            if (!isAuth)
+            {
+                canViewEmployees = canViewAttendanceAll = canManageUsers = canEditSettings = false;
+                canShowRegisterFace = false;
+                canViewReports = false;
+                currentUserName = "";
+                return;
+            }
+
+            var userDto = await AuthService.GetCurrentUserAsync();
+            currentUserName = $"{userDto?.FullName} - {userDto?.Username}";
+
+            var results = await Task.WhenAll(
+                AuthService.HasPermissionAsync("Employees.View"),
+                AuthService.HasPermissionAsync("Attendance.ViewAll"),
+                AuthService.HasPermissionAsync("Users.Manage"),
+                AuthService.HasPermissionAsync("Settings.Edit"),
+                AuthService.HasRoleAsync("User"),
+                AuthService.HasPermissionAsync("Reports.View")
+
+            );
+
+            canViewEmployees = results[0];
+            canViewAttendanceAll = results[1];
+            canManageUsers = results[2];
+            canEditSettings = results[3];
+            bool isUserRole = results[4];
+            canViewReports = results[5];
+            
+
+            if (!isUserRole)
+            {
+                canShowRegisterFace = true;
+            }
+            else
+            {
+                EmployeeDto? employee = null;
+
+                if (userDto?.EmployeeId != null)
+                {
+                    employee = await ApiService.GetEmployeeByIdAsync(userDto.EmployeeId.Value);
+                }
+                else if (!string.IsNullOrEmpty(userDto?.FullName))
+                {
+                    var allEmployees = await ApiService.GetEmployeesAsync();
+                    employee = allEmployees.FirstOrDefault(e =>
+                        string.Equals(e.FullName, userDto.FullName, StringComparison.OrdinalIgnoreCase));
+                }
+
+                canShowRegisterFace = employee != null && !employee.HasFace;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ [MainLayout] LoadPermissionsAsync lỗi: {ex.Message}");
+            canViewEmployees = canViewAttendanceAll = canManageUsers = canEditSettings = false;
+            canShowRegisterFace = false;
+            canViewReports = false;
+            currentUserName = "";
+        }
+    }
+
+    private void ToggleNavMenu() => collapseNavMenu = !collapseNavMenu;
+
+    private async Task HandleLogout()
+    {
+        var userDto = await AuthService.GetCurrentUserAsync();
+        await AuthService.LogoutAsync();
+
+        if (userDto != null)
+            await ApiService.LogoutAsync(userDto.Id);
+
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+
+    public void Dispose()
+    {
+        AuthService.OnAuthStateChanged -= OnAuthStateChangedHandler;
+    }
+}
