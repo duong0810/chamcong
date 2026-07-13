@@ -484,5 +484,8 @@ $RECYCLE.BIN/
 *.swp
 
 
+# Ẩn file database SQL
+db.sql
+fix.txt
 
 chamcong/wwwroot/upload/
